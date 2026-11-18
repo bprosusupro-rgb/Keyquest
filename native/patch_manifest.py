@@ -20,6 +20,18 @@ ET.SubElement(manifest, "uses-feature", {
     prefix + "name": "oculus.software.overlay_keyboard", prefix + "required": "false"
 })
 
+ET.SubElement(application, "meta-data", {
+    prefix + "name": "com.oculus.supportedDevices",
+    prefix + "value": "quest3|quest3s"
+})
+for activity in application.findall("activity"):
+    if activity.get(prefix + "name") == "com.godot.game.GodotApp":
+        activity.set(prefix + "screenOrientation", "unspecified")
+        ET.SubElement(activity, "layout", {
+            prefix + "defaultWidth": "1024dp", prefix + "defaultHeight": "680dp",
+            prefix + "minWidth": "540dp", prefix + "minHeight": "360dp"
+        })
+
 for provider in application.findall("provider"):
     name = provider.get(prefix + "name")
     if name == "androidx.startup.InitializationProvider":
@@ -31,7 +43,7 @@ ET.SubElement(application, "meta-data", {
 })
 service = ET.SubElement(application, "service", {
     prefix + "name": "org.questpanel.macros.MacroService",
-    prefix + "label": "Quest Panel Macros",
+    prefix + "label": "Keyquest",
     prefix + "permission": "android.permission.BIND_ACCESSIBILITY_SERVICE",
     prefix + "exported": "true"
 })

@@ -34,14 +34,15 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 public final class MacroService extends AccessibilityService {
-    static MacroService active;
-    static volatile String status = "Enable Quest Panel Macros in Android accessibility settings.";
+    static volatile MacroService active;
+    static volatile String status = "Enable Keyquest in Android accessibility settings.";
     static final AtomicReference<String> point = new AtomicReference<>("");
     private final Handler handler = new Handler(Looper.getMainLooper());
     private Runnable operation;
     private WindowManager pickerManager;
     private TextView picker;
     private int generation;
+    private KeyboardOverlay keyboard;
 
     private static final class Step {
         final double x, y;
@@ -93,6 +94,19 @@ public final class MacroService extends AccessibilityService {
     }
 
     void arm(Activity activity, String target, String coordinates, int repeats, String payload, boolean pick) {
+        arm(activity, target, coordinates, repeats, payload, pick, false);
+    }
+
+    void openKeyboard(Activity activity, String target) {
+        if (Build.VERSION.SDK_INT < 33) {
+            stop("The in-game keyboard requires Android 13 or newer.");
+            return;
+        }
+        arm(activity, target, "", 1, "", false, true);
+    }
+
+    private void arm(Activity activity, String target, String coordinates, int repeats,
+                     String payload, boolean pick, boolean typing) {
         stop("Preparing…");
         if (!target.matches("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+")
                 || target.equals(getPackageName())) {
@@ -101,7 +115,7 @@ public final class MacroService extends AccessibilityService {
         }
         List<Step> steps = new ArrayList<>();
         try {
-            if (!pick) {
+            if (!pick && !typing) {
                 for (String line : coordinates.split("\\R")) {
                     if (!line.trim().isEmpty()) steps.add(new Step(line));
                 }
@@ -132,9 +146,10 @@ public final class MacroService extends AccessibilityService {
         operation = new Runnable() {
             @Override public void run() {
                 if (ticket != generation) return;
-                Target window = findTarget(target);
+                Target window = findTarget(target, typing);
                 if (window != null) {
                     if (pick) showPicker(target, window);
+                    else if (typing) showKeyboard(target, window);
                     else schedule(() -> runStep(ticket, target, window.display, steps,
                                                  repeats, payload, 0), 1200);
                     return;
@@ -158,21 +173,26 @@ public final class MacroService extends AccessibilityService {
     }
 
     private Target findTarget(String packageName) {
+        return findTarget(packageName, false);
+    }
+
+    private Target findTarget(String packageName, boolean allowInactive) {
         if (Build.VERSION.SDK_INT >= 30) {
             SparseArray<List<AccessibilityWindowInfo>> displays = getWindowsOnAllDisplays();
             for (int i = 0; i < displays.size(); i++) {
-                Target result = findInDisplay(displays.keyAt(i), displays.valueAt(i), packageName);
+                Target result = findInDisplay(displays.keyAt(i), displays.valueAt(i), packageName, allowInactive);
                 if (result != null) return result;
             }
             return null;
         }
-        return findInDisplay(Display.DEFAULT_DISPLAY, getWindows(), packageName);
+        return findInDisplay(Display.DEFAULT_DISPLAY, getWindows(), packageName, allowInactive);
     }
 
-    private Target findInDisplay(int display, List<AccessibilityWindowInfo> windows, String packageName) {
+    private Target findInDisplay(int display, List<AccessibilityWindowInfo> windows,
+                                 String packageName, boolean allowInactive) {
         for (AccessibilityWindowInfo window : windows) {
             if (window.getType() != AccessibilityWindowInfo.TYPE_APPLICATION
-                    || !window.isActive() || !window.isFocused()) continue;
+                    || !window.isFocused() || (!allowInactive && !window.isActive())) continue;
             AccessibilityNodeInfo root = window.getRoot();
             if (root != null && packageName.contentEquals(root.getPackageName() == null ? "" : root.getPackageName())) {
                 Target target = new Target(display, window);
@@ -231,57 +251,105 @@ public final class MacroService extends AccessibilityService {
                 return true;
             }
         }
-        if (Build.VERSION.SDK_INT >= 33) {
-            InputMethod method = getInputMethod();
-            if (method == null) return false;
-            EditorInfo editor = method.getCurrentInputEditorInfo();
-            InputMethod.AccessibilityInputConnection connection = method.getCurrentInputConnection();
-            if (editor != null && target.equals(editor.packageName) && connection != null) {
-                connection.commitText(payload, 1, null);
+        Target window = findTarget(target);
+        if (window != null) {
+            InputMethod.AccessibilityInputConnection input = keyboardConnection(target, window.display);
+            if (input != null) {
+                input.commitText(payload, 1, null);
                 return true;
             }
         }
         return false;
     }
 
-    private void showPicker(String target, Target window) {
-        DisplayManager displays = getSystemService(DisplayManager.class);
-        Display display = displays == null ? null : displays.getDisplay(window.display);
-        if (display == null) {
-            stop("This display does not expose a tap-point picker. Enter percentages manually.");
-            return;
-        }
-        Context context = createDisplayContext(display);
-        if (Build.VERSION.SDK_INT >= 30) {
-            context = context.createWindowContext(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, null);
-        }
-        pickerManager = context.getSystemService(WindowManager.class);
-        picker = new TextView(context);
-        picker.setText("Tap the point to capture");
-        picker.setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
-        picker.setTextSize(20);
-        picker.setTextColor(Color.WHITE);
-        picker.setBackgroundColor(0x332b83a6);
-        picker.setOnTouchListener((view, event) -> {
-            if (event.getActionMasked() == MotionEvent.ACTION_UP) {
-                Rect bounds = window.bounds;
-                double x = 100.0 * (event.getRawX() - bounds.left) / Math.max(1, bounds.width() - 1);
-                double y = 100.0 * (event.getRawY() - bounds.top) / Math.max(1, bounds.height() - 1);
-                if (x >= 0 && x <= 100 && y >= 0 && y <= 100 && findTarget(target) != null) {
-                    point.set(String.format(Locale.ROOT, "%.1f, %.1f, 500", x, y));
-                    stop("Point captured. Return to Quest Panel Macros.");
-                } else {
-                    stop("Point was outside the focused target. Try again or enter percentages.");
-                }
-            }
-            return true;
-        });
-        WindowManager.LayoutParams params = new WindowManager.LayoutParams(
-                WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-                PixelFormat.TRANSLUCENT);
+    private void showKeyboard(String target, Target window) {
         try {
+            Context context = overlayContext(window.display);
+            if (context == null) {
+                stop("Horizon OS did not expose the target display for a keyboard overlay.");
+                return;
+            }
+            keyboard = new KeyboardOverlay(context, window.bounds,
+                    () -> keyboardConnection(target, window.display),
+                    () -> stop("Keyboard closed."));
+            keyboard.show();
+            status = "Keyboard open in the selected app.";
+            monitorKeyboard(target, window.display);
+        } catch (RuntimeException blocked) {
+            stop("Horizon OS did not allow a keyboard overlay on this display.");
+        }
+    }
+
+    private void monitorKeyboard(String target, int display) {
+        schedule(() -> {
+            Target current = findTarget(target, true);
+            if (current == null || current.display != display) {
+                stop("Keyboard closed because the target lost focus.");
+                return;
+            }
+            try {
+                keyboard.update(current.bounds);
+                monitorKeyboard(target, display);
+            } catch (RuntimeException unavailable) {
+                stop("The keyboard overlay is no longer available.");
+            }
+        }, 350);
+    }
+
+    private InputMethod.AccessibilityInputConnection keyboardConnection(String target, int display) {
+        if (Build.VERSION.SDK_INT < 33) return null;
+        Target current = findTarget(target, true);
+        if (current == null || current.display != display) return null;
+        InputMethod method = getInputMethod();
+        if (method == null) return null;
+        EditorInfo editor = method.getCurrentInputEditorInfo();
+        return editor != null && target.equals(editor.packageName)
+                ? method.getCurrentInputConnection() : null;
+    }
+
+    private Context overlayContext(int displayId) {
+        DisplayManager displays = getSystemService(DisplayManager.class);
+        Display display = displays == null ? null : displays.getDisplay(displayId);
+        if (display == null) return null;
+        Context context = createDisplayContext(display);
+        return Build.VERSION.SDK_INT >= 30
+                ? context.createWindowContext(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, null)
+                : context;
+    }
+
+    private void showPicker(String target, Target window) {
+        try {
+            Context context = overlayContext(window.display);
+            if (context == null) {
+                stop("This display does not expose a tap-point picker. Enter percentages manually.");
+                return;
+            }
+            pickerManager = context.getSystemService(WindowManager.class);
+            picker = new TextView(context);
+            picker.setText("Tap the point to capture");
+            picker.setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+            picker.setTextSize(20);
+            picker.setTextColor(Color.WHITE);
+            picker.setBackgroundColor(0x332b83a6);
+            picker.setOnTouchListener((view, event) -> {
+                if (event.getActionMasked() == MotionEvent.ACTION_UP) {
+                    Rect bounds = window.bounds;
+                    double x = 100.0 * (event.getRawX() - bounds.left) / Math.max(1, bounds.width() - 1);
+                    double y = 100.0 * (event.getRawY() - bounds.top) / Math.max(1, bounds.height() - 1);
+                    if (x >= 0 && x <= 100 && y >= 0 && y <= 100 && findTarget(target, true) != null) {
+                        point.set(String.format(Locale.ROOT, "%.1f, %.1f, 500", x, y));
+                        stop("Point captured. Return to Keyquest.");
+                    } else {
+                        stop("Point was outside the focused target. Try again or enter percentages.");
+                    }
+                }
+                return true;
+            });
+            WindowManager.LayoutParams params = new WindowManager.LayoutParams(
+                    WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
+                    WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                    PixelFormat.TRANSLUCENT);
             pickerManager.addView(picker, params);
             status = "Tap the desired point in the target panel.";
             schedule(() -> stop("Point picker timed out."), 15_000);
@@ -300,6 +368,10 @@ public final class MacroService extends AccessibilityService {
         if (operation != null) {
             handler.removeCallbacks(operation);
             operation = null;
+        }
+        if (keyboard != null) {
+            keyboard.close();
+            keyboard = null;
         }
         if (picker != null) {
             if (picker.isAttachedToWindow()) pickerManager.removeView(picker);

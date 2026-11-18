@@ -1,14 +1,14 @@
 config_version=5
 
 [application]
-config/name="Quest Panel Macros"
+config/name="Keyquest"
 config/icon="res://icon.png"
 run/main_scene="res://panel.tscn"
 config/features=PackedStringArray("4.6", "GL Compatibility")
 
 [display]
-window/size/viewport_width=840
-window/size/viewport_height=720
+window/size/viewport_width=960
+window/size/viewport_height=680
 window/stretch/mode="canvas_items"
 
 [rendering]

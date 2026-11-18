@@ -33,7 +33,7 @@ public final class QuestMacrosPlugin extends GodotPlugin {
         activity.runOnUiThread(() -> {
             try {
                 activity.startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
-            } catch (android.content.ActivityNotFoundException error) {
+            } catch (android.content.ActivityNotFoundException | SecurityException error) {
                 MacroService.status = "Android accessibility settings are unavailable on this firmware.";
             }
         });
@@ -78,10 +78,31 @@ public final class QuestMacrosPlugin extends GodotPlugin {
         activity.runOnUiThread(() -> {
             MacroService service = MacroService.active;
             if (service == null) {
-                MacroService.status = "Enable Quest Panel Macros in Android accessibility settings.";
+                MacroService.status = "Enable Keyquest in Android accessibility settings, then return here.";
+                openSettings();
                 return;
             }
             service.arm(activity, target, coordinates, repeats, payload, pick);
+        });
+    }
+
+    @UsedByGodot
+    public boolean isServiceReady() {
+        return MacroService.active != null;
+    }
+
+    @UsedByGodot
+    public void openKeyboard(String target) {
+        Activity activity = getActivity();
+        if (activity == null) return;
+        activity.runOnUiThread(() -> {
+            MacroService service = MacroService.active;
+            if (service == null) {
+                MacroService.status = "Enable Keyquest in Android accessibility settings, then return here.";
+                openSettings();
+                return;
+            }
+            service.openKeyboard(activity, target);
         });
     }
 
