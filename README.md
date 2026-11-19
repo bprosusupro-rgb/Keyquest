@@ -6,7 +6,7 @@ A standalone Android app that puts a keyboard inside a compatible Ren’Py game.
 
 1. Sideload **KeyquestStudio.apk** and open **Keyquest Studio**.
 2. Choose a downloaded APK with the file picker or choose an installed single-APK game. The file picker needs an Android document provider. If Quest does not expose one, use the installed-game picker.
-3. Confirm that the game uses **Ren’Py 8.4.1**, then choose **Build APK** and **Save to Downloads**.
+3. Studio scans the selected APK and shows its title, package, app version, and Ren’Py engine version when available. A detected Ren’Py 8.4.1 build is ready automatically. If the engine version is unknown, confirm 8.4.1 manually before choosing **Build APK** and **Save to Downloads**. A detected unsupported version stays blocked.
 4. Sideload `game-keyboard.apk` from Downloads. Tap the **Keyquest logo** in the game’s bottom-right corner. **S** and **I** are the default shortcuts. **Settings** lets you remap them, switch theme, change size, and dock the keyboard at the top or bottom.
 
 ### Optional value editor

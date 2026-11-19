@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageInfo;
 import android.content.pm.ResolveInfo;
 import android.content.res.ColorStateList;
 import android.graphics.Typeface;
@@ -30,8 +31,8 @@ public final class Studio extends Activity {
     private Button browse, installed, build, save;
     private ProgressBar progress;
     private CheckBox profile, valuesAddon;
-    private Uri sourceUri;
-    private String sourcePath;
+    private File selectedApk, cachedApk;
+    private ApkInspection inspection;
     private File ready;
     private boolean busy;
 
@@ -115,44 +116,56 @@ public final class Studio extends Activity {
                 candidates.put(app.packageName, app);
             }
         }
-        List<ApplicationInfo> apps = new ArrayList<>(candidates.values());
-        apps.sort(Comparator.comparing(app -> app.loadLabel(getPackageManager()).toString(), String.CASE_INSENSITIVE_ORDER));
-        if (apps.isEmpty()) {
-            status.setText("No eligible installed games found. Choose a downloaded APK instead.");
-            return;
-        }
-        String[] names = apps.stream().map(app -> app.loadLabel(getPackageManager()) + "\n" + app.packageName)
-                .toArray(String[]::new);
-        new AlertDialog.Builder(this).setTitle("Installed single-APK apps")
-                .setItems(names, (dialog, index) -> {
-                    sourceUri = null;
-                    sourcePath = apps.get(index).sourceDir;
-                    select(names[index]);
-                }).setNegativeButton("Cancel", null).show();
-    }
-
-    private void select(String name) {
-        discardOutput();
-        profile.setChecked(false);
-        selection.setText(name);
-        status.setText("");
-        refresh();
-    }
-
-    private void confirmBuild() {
-        if (busy || !profile.isChecked() || (sourceUri == null && sourcePath == null)) return;
-        discardOutput();
         busy = true;
-        status.setText("Reading, rebuilding, and signing…");
+        status.setText("Finding installed Ren’Py games…");
         refresh();
-        final Uri uri = sourceUri;
-        final String path = sourcePath;
-        final boolean includeValues = valuesAddon.isChecked();
         new Thread(() -> {
-            File copied = null, unsigned = null, result = null;
+            List<ApplicationInfo> games = new ArrayList<>();
+            for (ApplicationInfo app : candidates.values()) {
+                try {
+                    if (ApkInspection.scan(new File(app.sourceDir), false).universalRenpy) games.add(app);
+                } catch (IOException unreadable) {
+                    // The APK file picker also supports APKs from another source.
+                }
+            }
+            games.sort(Comparator.comparing(app -> app.loadLabel(getPackageManager()).toString(),
+                    String.CASE_INSENSITIVE_ORDER));
+            String[] names = games.stream().map(app -> app.loadLabel(getPackageManager()) + "\n" + app.packageName)
+                    .toArray(String[]::new);
+            runOnUiThread(() -> {
+                if (isDestroyed()) return;
+                busy = false;
+                refresh();
+                if (games.isEmpty()) {
+                    status.setText("No installed single-APK Ren’Py games detected. Choose a downloaded APK instead.");
+                    return;
+                }
+                status.setText("");
+                new AlertDialog.Builder(this).setTitle("Installed Ren’Py games")
+                        .setItems(names, (dialog, index) -> inspect(null,
+                                new File(games.get(index).sourceDir), names[index]))
+                        .setNegativeButton("Cancel", null).show();
+            });
+        }, "keyquest-discover").start();
+    }
+
+    private void inspect(Uri uri, File installedApk, String fallbackName) {
+        discardOutput();
+        if (cachedApk != null) cachedApk.delete();
+        cachedApk = null;
+        selectedApk = null;
+        inspection = null;
+        profile.setChecked(false);
+        selection.setText(fallbackName);
+        status.setText("Scanning the APK…");
+        busy = true;
+        refresh();
+        new Thread(() -> {
+            File copied = null;
+            ApkInspection result = null;
+            String label = fallbackName;
             String message;
             try {
-                File source;
                 if (uri != null) {
                     copied = File.createTempFile("source-", ".apk", getCacheDir());
                     try (InputStream input = getContentResolver().openInputStream(uri);
@@ -160,9 +173,75 @@ public final class Studio extends Activity {
                         if (input == null) throw new IOException("Could not read the chosen APK.");
                         ApkBuilder.copy(input, output, 3_000_000_000L);
                     }
-                    source = copied;
-                } else {
-                    source = new File(path);
+                }
+                File source = copied == null ? installedApk : copied;
+                PackageInfo metadata = getPackageManager().getPackageArchiveInfo(source.getAbsolutePath(), 0);
+                if (metadata != null) {
+                    if (metadata.applicationInfo != null) {
+                        metadata.applicationInfo.sourceDir = source.getAbsolutePath();
+                        metadata.applicationInfo.publicSourceDir = source.getAbsolutePath();
+                        label = metadata.applicationInfo.loadLabel(getPackageManager()).toString();
+                    }
+                    label += "\n" + metadata.packageName;
+                    if (metadata.versionName != null) label += " · " + metadata.versionName;
+                }
+                result = ApkInspection.scan(source, true);
+                message = describeInspection(result);
+            } catch (Exception error) {
+                message = "Could not scan the APK. " + describe(error);
+            }
+            final File completed = copied;
+            final ApkInspection findings = result;
+            final String name = label;
+            final String outcome = message;
+            runOnUiThread(() -> {
+                if (isDestroyed()) {
+                    if (completed != null) completed.delete();
+                    return;
+                }
+                if (findings != null && findings.canBuild()) {
+                    cachedApk = completed;
+                    selectedApk = completed == null ? installedApk : completed;
+                } else if (completed != null) {
+                    completed.delete();
+                }
+                inspection = findings;
+                busy = false;
+                selection.setText(name);
+                status.setText(outcome);
+                refresh();
+            });
+        }, "keyquest-inspect").start();
+    }
+
+    private static String describeInspection(ApkInspection result) {
+        if (!result.universalRenpy) return "No supported Ren’Py universal APK layout detected.";
+        if (result.alreadyPatched) return "Ren’Py game detected. This APK already contains Keyquest.";
+        if (result.engineVersion == null) return "Ren’Py game detected. Confirm the engine version to continue.";
+        if (!result.canBuild()) return "Ren’Py " + result.engineVersion + " detected. This build supports Ren’Py "
+                + ApkInspection.SUPPORTED_VERSION + ".";
+        return "Ren’Py " + result.engineVersion + " detected. Ready to build.";
+    }
+
+    private boolean canBuild() {
+        return !busy && selectedApk != null && inspection != null && inspection.canBuild()
+                && (inspection.engineVersion != null || profile.isChecked());
+    }
+
+    private void confirmBuild() {
+        if (!canBuild()) return;
+        discardOutput();
+        busy = true;
+        status.setText("Reading, rebuilding, and signing…");
+        refresh();
+        final File source = selectedApk;
+        final boolean includeValues = valuesAddon.isChecked();
+        new Thread(() -> {
+            File unsigned = null, result = null;
+            String message;
+            try {
+                if (!ApkInspection.scan(source, true).canBuild()) {
+                    throw new IOException("The APK has changed or is incompatible. Select it again.");
                 }
                 unsigned = File.createTempFile("rebuild-", ".apk", getCacheDir());
                 result = File.createTempFile("keyboard-", ".apk", getCacheDir());
@@ -182,12 +261,15 @@ public final class Studio extends Activity {
                 result = null;
                 message = "Build failed. " + describe(error);
             } finally {
-                if (copied != null) copied.delete();
                 if (unsigned != null) unsigned.delete();
             }
             final File completed = result;
             final String outcome = message;
             runOnUiThread(() -> {
+                if (isDestroyed()) {
+                    if (completed != null) completed.delete();
+                    return;
+                }
                 ready = completed;
                 busy = false;
                 status.setText(outcome);
@@ -269,14 +351,18 @@ public final class Studio extends Activity {
         super.onActivityResult(request, resultCode, data);
         if (request != OPEN || resultCode != RESULT_OK || data == null || data.getData() == null) return;
         Uri uri = data.getData();
-        sourceUri = uri;
-        sourcePath = null;
         String name = "Downloaded APK";
         try (android.database.Cursor record = getContentResolver().query(uri,
                 new String[] {android.provider.OpenableColumns.DISPLAY_NAME}, null, null, null)) {
             if (record != null && record.moveToFirst() && record.getString(0) != null) name = record.getString(0);
         } catch (RuntimeException ignored) { }
-        select(name);
+        inspect(uri, null, name);
+    }
+
+    @Override protected void onDestroy() {
+        if (cachedApk != null) cachedApk.delete();
+        discardOutput();
+        super.onDestroy();
     }
 
     private void discardOutput() {
@@ -287,9 +373,11 @@ public final class Studio extends Activity {
     private void refresh() {
         browse.setEnabled(!busy);
         installed.setEnabled(!busy);
+        profile.setVisibility(inspection != null && inspection.canBuild() && inspection.engineVersion == null
+                ? View.VISIBLE : View.GONE);
         profile.setEnabled(!busy);
         valuesAddon.setEnabled(!busy);
-        build.setEnabled(!busy && profile.isChecked() && (sourceUri != null || sourcePath != null));
+        build.setEnabled(canBuild());
         save.setVisibility(ready == null ? View.GONE : View.VISIBLE);
         save.setEnabled(!busy);
         build.setVisibility(ready == null ? View.VISIBLE : View.GONE);
