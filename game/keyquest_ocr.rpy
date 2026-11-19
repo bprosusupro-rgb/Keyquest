@@ -78,6 +78,23 @@ init python:
         formatted = ("%.6f" % result).rstrip("0").rstrip(".")
         return "0" if formatted == "-0" else formatted
 
+    def _keyquest_read_typing_prompt(text):
+        instruction = _kq_re.search(r"\(?\s*type\s+the\s+line\s+above\b", text, _kq_re.I)
+        if instruction is None:
+            return None
+        preceding = text[:instruction.start()].splitlines()
+        prompt = next((line.strip() for line in reversed(preceding) if line.strip()), u"")
+        # The outlined text box can be read as an isolated 4 at either end.
+        border_noise = _kq_re.search(r"(?<=[.!?])\s+4$", prompt)
+        if border_noise:
+            prompt = prompt[:border_noise.start()]
+        if border_noise and _kq_re.match(r"^4\s+[a-z]", prompt):
+            prompt = _kq_re.sub(r"^4\s+", "", prompt)
+            prompt = prompt[0].upper() + prompt[1:]
+        if not _kq_re.search(r"[^\W\d_]", prompt, _kq_re.UNICODE):
+            return None
+        return prompt
+
     def _keyquest_read_key_cue(text):
         cues = set()
         for line in text.splitlines():
@@ -141,7 +158,7 @@ init python:
             state.activity = autoclass("org.renpy.android.PythonSDLActivity").mActivity
         if not state.activity.hasWindowFocus() or _keyquest_vision.busy:
             return False
-        detailed = region in ("race", "bottom")
+        detailed = region in ("race", "bottom", "typing")
         size = _keyquest_capture_size(960 if state.watch and not detailed else 1440, detailed)
         frame = renpy.screenshot_to_bytes(size)
         if not frame:
@@ -189,7 +206,7 @@ init python:
             messenger = autoclass("android.os.Messenger")(handler)
             state.bridge = (callback, handler, messenger, activity)
 
-            frame = renpy.screenshot_to_bytes(_keyquest_capture_size(1440, state.region in ("race", "bottom")))
+            frame = renpy.screenshot_to_bytes(_keyquest_capture_size(1440, state.region in ("race", "bottom", "typing")))
             if not frame:
                 raise ValueError("No game frame")
             bitmap = autoclass("android.graphics.BitmapFactory").decodeByteArray(frame, 0, len(frame))
@@ -218,6 +235,7 @@ init python:
                 extras.putParcelable("reply", messenger)
                 extras.putBoolean("math", state.mode in ("math", "keys"))
                 extras.putBoolean("race", state.region == "race" and state.mode == "keys")
+                extras.putBoolean("typing", state.region == "typing")
                 intent = autoclass("android.content.Intent")()
                 intent.setClassName("org.keyquest.studio", "org.keyquest.studio.OcrActivity")
                 intent.addFlags(0x10000)  # FLAG_ACTIVITY_NO_ANIMATION
@@ -277,7 +295,12 @@ init python:
                 _keyquest_ocr_return("No single arithmetic problem found. Choose the area that contains it.")
                 return
         else:
-            output = u" ".join(text.split())[:160]
+            output = _keyquest_read_typing_prompt(text)
+            if output is None:
+                if state.region == "typing":
+                    _keyquest_ocr_return("Could not isolate the typing prompt. Keep the entire box visible and scan again.")
+                    return
+                output = u" ".join(text.split())[:160]
         _keyquest_ocr_reset()
         if state.destination == "show":
             renpy.show_screen("_keyquest_ocr_result", mode=state.mode, region=state.region, result=output)
@@ -489,15 +512,17 @@ screen _keyquest_smart_input(initial_mode="text", initial_region="full", initial
                 spacing 6
                 for location, caption in (("full", "Full screen"), ("top", "Top"), ("center", "Center"), ("bottom", "Bottom")):
                     textbutton caption style "keyquest_deck_key" selected (region == location) action SetScreenVariable("region", location)
+            if mode == "text":
+                textbutton "Typing challenge" style "keyquest_deck_key" selected (region == "typing") action SetScreenVariable("region", "typing")
             hbox:
                 spacing 6
                 textbutton "Show result" style "keyquest_deck_key" selected (destination == "show") action SetScreenVariable("destination", "show")
                 textbutton "Type in game" style "keyquest_deck_key" selected (destination == "type") action SetScreenVariable("destination", "type")
-                textbutton ("Scan & show" if destination == "show" else "Scan & type") style "keyquest_deck_accent" action Function(_keyquest_ocr_begin, mode, region, destination)
+                textbutton ("Scan & show" if destination == "show" else "Scan & type") style "keyquest_deck_accent" action Function(_keyquest_ocr_begin, mode, "bottom" if region == "typing" and mode != "text" else region, destination)
             if destination == "type":
                 text "Open the game's text field before scanning." color "#b9d3e8" size 19
             elif mode == "math":
-                textbutton "Watch for answers" style "keyquest_deck_key" action Function(_keyquest_watch_start, "math", region)
+                textbutton "Watch for answers" style "keyquest_deck_key" action Function(_keyquest_watch_start, "math", "bottom" if region == "typing" else region)
 
 screen _keyquest_ocr_result(mode, region, result):
     zorder 995

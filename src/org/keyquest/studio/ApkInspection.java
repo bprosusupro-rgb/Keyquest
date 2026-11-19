@@ -8,7 +8,7 @@ import java.util.regex.Pattern;
 import java.util.zip.*;
 
 final class ApkInspection {
-    static final String[] ENGINE_FAMILIES = {"7.8", "8.0", "8.1", "8.2", "8.3", "8.4", "8.5"};
+    static final String[] ENGINE_FAMILIES = {"7.5", "7.8", "8.0", "8.1", "8.2", "8.3", "8.4", "8.5"};
 
     static String family(String version) {
         if (version == null) return null;
@@ -109,7 +109,7 @@ final class ApkInspection {
                 + ".x (matched bundled engine files).";
         if (fingerprintSuggestion != null) return "Engine files resemble Ren’Py " + fingerprintSuggestion
                 + ".x. Check the game version before selecting this profile.";
-        if ("2.7".equals(pythonAbi)) return "Python 2.7 found. Ren’Py 7.8 is the available 7.x profile; confirm your game uses it.";
+        if ("2.7".equals(pythonAbi)) return "Python 2.7 found. Confirm whether your game uses Ren’Py 7.5 or 7.8 before choosing a profile.";
         if ("3.9".equals(pythonAbi)) return "Python 3.9 found. Check the game’s version against the 8.0–8.3 profiles.";
         if ("3.12".equals(pythonAbi)) return "Python 3.12 found. Check whether the game uses 8.4 or 8.5; newer engines can also use this Python version.";
         return "No engine or Python marker found. Check the game’s version before choosing a profile.";

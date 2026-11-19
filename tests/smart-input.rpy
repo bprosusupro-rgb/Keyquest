@@ -18,6 +18,11 @@ init 999 python:
     assert _keyquest_read_key_cue(u"Press Space to continue") == ("SPACE",)
     assert _keyquest_read_key_cue(u"Press S\nPress I") is None
     assert _keyquest_read_key_cue(u"Press any key") is None
+    typing_noise = u"0/7                   36.2\n4 the single player was not worthy of any praise. 4 (Type the line above exactly as shown;\nthen press enter.)\nBack Skip Auto Menu"
+    typing_prompt = u"The single player was not worthy of any praise."
+    assert _keyquest_read_typing_prompt(typing_noise) == typing_prompt
+    assert _keyquest_read_typing_prompt(u"4 apples.\n(Type the line above exactly as shown.)") == u"4 apples."
+    assert _keyquest_read_typing_prompt(u"Text without the instruction.") is None
     phrase = u"Hello from Keyquest! " * 5 + u"café"
     _keyquest_insert_text(phrase)
     posted = [ev.text for ev in pygame.event.get() if ev.type == pygame.TEXTINPUT]
@@ -103,7 +108,7 @@ label start:
     $ print("Keyquest Smart Input render and repeat timer tests passed.")
     show screen _keyquest_test_typing
     $ actual = renpy.input("Test in-game OCR text")
-    $ assert actual == u"Keyquest café 42", actual
+    $ assert actual == typing_prompt, actual
     $ print("Keyquest text reached the active game field.")
     $ renpy.quit()
 
@@ -112,7 +117,8 @@ init python:
         _keyquest_scan_state.started = _kq_time.time()
         _keyquest_scan_state.mode = "text"
         _keyquest_scan_state.destination = "type"
-        _keyquest_scan_state.response = (_keyquest_scan_state.request, u"Keyquest café 42", None)
+        _keyquest_scan_state.region = "typing"
+        _keyquest_scan_state.response = (_keyquest_scan_state.request, typing_noise, None)
         _keyquest_ocr_poll()
 
 screen _keyquest_test_typing():

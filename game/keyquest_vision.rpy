@@ -10,6 +10,8 @@ init python:
             return (width // 10, height // 4, width * 4 // 5, height // 2)
         if region == "bottom":
             return (width // 5, height * 17 // 25, width * 3 // 5, height // 4)
+        if region == "typing":
+            return (width * 13 // 100, height * 74 // 100, width * 74 // 100, height * 22 // 100)
         if region == "race":
             return (width * 23 // 100, height // 8, width * 54 // 100, height * 3 // 16)
         return None
@@ -84,7 +86,7 @@ init python:
                     self.set_variable(self.engine, b"tessedit_char_whitelist", b"0123456789")
                     if mode != "digits":
                         filtered = self.tile_label_mask(source)
-                self.mode(self.engine, 7 if race or mode == "digits-light" else (8 if digits else (3 if mode == "text" else 11)))
+                self.mode(self.engine, 7 if race or mode == "digits-light" else (8 if digits else (6 if region == "typing" else (3 if mode == "text" else 11))))
                 self.set_image(self.engine, filtered or source)
                 text = self.text(self.engine)
                 if not text:

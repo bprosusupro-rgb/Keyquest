@@ -1,10 +1,22 @@
 default _test_colors = ("#d60000", "#0000c2", "#01cf00", "#d7cf00")
 default _test_pressed = []
+default _test_reject_color = False
 default _test_hit_count = 0
 default _test_tiles = (1, 2, 3, 4, 5, 6, 7, 0, 8)
 
 init 999 python:
-    assert _keyquest_color_layout(((214, 0, 0), (0, 0, 194), (1, 207, 0), (215, 207, 0)))
+    assert _keyquest_color_layout(((0, 0, 194), (214, 0, 0), (215, 207, 0), (1, 207, 0))) == (1, 0, 3, 2)
+    dark_signatures = {0: ((0, 0, 0),) * 9, 1: ((19, 21, 25),) * 9, 2: ((220, 170, 80),) * 9}
+    old_tiles, new_tiles = (1, 0, 2), (0, 1, 2)
+    dark_moved = tuple(dark_signatures[tile] for tile in new_tiles)
+    assert _keyquest_observe_tiles(dark_moved, dark_signatures, old_tiles, new_tiles) == new_tiles
+    ambiguous = (((9, 10, 12),) * 9,) * 2 + (dark_signatures[2],)
+    assert _keyquest_observe_tiles(ambiguous, dark_signatures, old_tiles, new_tiles) is None
+
+    def _test_press_color(index):
+        _test_pressed.append(index)
+        if _test_reject_color:
+            _keyquest_color_label("minigame_repeat_pattern_wrong_button", True)
     board = (0.30, 0.31, 0.95, 0.94)
     assert _keyquest_tile_stop_position(board, 1280, 720, 112, 48) == (1163, 5)
     assert _keyquest_tile_stop_position((0.0, 0.0, 1.0, 1.0), 1280, 720, 112, 48) is None
@@ -79,10 +91,23 @@ label start:
     $ renpy.pause(2.3, hard=True)
     hide screen _kq_test_flashes
     $ assert _keyquest_minigame.sequence == (0, 2, 0), _keyquest_minigame.sequence
-    $ _keyquest_show_minigame()
+    $ assert _keyquest_minigame.job is None
+    $ assert "3 flashes recorded" in _keyquest_minigame.message
     $ _keyquest_begin_minigame("color-play")
     $ renpy.pause(2.1, hard=True)
     $ assert _test_pressed == [0, 2, 0], _test_pressed
+    $ _test_colors = ("#0000c2", "#d60000", "#d7cf00", "#01cf00")
+    $ _test_pressed = []
+    $ _keyquest_begin_minigame("color-play")
+    $ renpy.pause(2.1, hard=True)
+    $ assert _test_pressed == [1, 3, 1], _test_pressed
+    $ _test_pressed = []
+    $ _test_reject_color = True
+    $ _keyquest_begin_minigame("color-play")
+    $ renpy.pause(1.6, hard=True)
+    $ assert _test_pressed == [1], _test_pressed
+    $ assert "rejected" in _keyquest_minigame.message
+
     hide screen _kq_test_colors
     hide screen _keyquest_minigames
 
@@ -158,7 +183,7 @@ screen _kq_test_colors():
             anchor (0.5, 0.5)
             xysize (int(config.screen_width * 0.235), int(config.screen_height * 0.22))
             background Solid(color)
-            action Function(_test_pressed.append, index, _update_screens=False)
+            action Function(_test_press_color, index, _update_screens=False)
 
 screen _kq_test_flashes():
     timer 0.60 action SetVariable("_test_colors", ("#ffaaaa", "#0000c2", "#01cf00", "#d7cf00"))
@@ -167,6 +192,7 @@ screen _kq_test_flashes():
     timer 1.35 action SetVariable("_test_colors", ("#d60000", "#0000c2", "#01cf00", "#d7cf00"))
     timer 1.60 action SetVariable("_test_colors", ("#ffaaaa", "#0000c2", "#01cf00", "#d7cf00"))
     timer 1.85 action SetVariable("_test_colors", ("#d60000", "#0000c2", "#01cf00", "#d7cf00"))
+    timer 2.05 action Function(_keyquest_color_label, "minigame_repeat_pattern_interaction_phase_start", True)
 
 screen _kq_test_tiles(side=3):
     $ bounds = _keyquest_board()

@@ -7,6 +7,11 @@ scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
 mkdir -p "$scratch/game"
 cp "$project/game/"*.rpy "$project/assets/"keyquest_*.png "$scratch/game/"
+if [[ "$profile" == 7_5 ]]; then
+    # Ren'Py 7.5 timers always respect modal screens and lack the explicit keyword.
+    sed -i '/^[[:space:]]*timer /s/ repeat True modal True action / repeat True action /' \
+        "$scratch/game/keyquest_automation.rpy" "$scratch/game/keyquest_ocr.rpy"
+fi
 printf 'label start:\n    return\n' > "$scratch/game/script.rpy"
 SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy "$sdk/renpy.sh" "$scratch" lint
 "$sdk/renpy.sh" "$scratch" compile

@@ -35,6 +35,7 @@ public final class OcrActivity extends Activity {
         final byte[] image;
         final boolean math;
         final boolean race;
+        final boolean typing;
         try {
             reply = Build.VERSION.SDK_INT >= 33
                     ? getIntent().getParcelableExtra("reply", Messenger.class)
@@ -42,6 +43,7 @@ public final class OcrActivity extends Activity {
             image = getIntent().getByteArrayExtra("image");
             math = getIntent().getBooleanExtra("math", false);
             race = getIntent().getBooleanExtra("race", false);
+            typing = getIntent().getBooleanExtra("typing", false);
             getIntent().replaceExtras((Bundle) null);
         } catch (RuntimeException badExtras) {
             finish();
@@ -59,7 +61,7 @@ public final class OcrActivity extends Activity {
             String result = null;
             String error = null;
             try {
-                result = recognize(image, math, race);
+                result = recognize(image, math, race, typing);
             } catch (IOException | RuntimeException | LinkageError failure) {
                 android.util.Log.e("KeyquestOCR", "OCR could not process the supplied frame", failure);
                 error = "OCR could not read this frame.";
@@ -72,7 +74,7 @@ public final class OcrActivity extends Activity {
         });
     }
 
-    private String recognize(byte[] image, boolean math, boolean race) throws IOException {
+    private String recognize(byte[] image, boolean math, boolean race, boolean typing) throws IOException {
         BitmapFactory.Options bounds = new BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
         BitmapFactory.decodeByteArray(image, 0, image.length, bounds);
@@ -94,6 +96,7 @@ public final class OcrActivity extends Activity {
                 }
                 int segmentation = TessBaseAPI.PageSegMode.PSM_AUTO;
                 if (race) segmentation = TessBaseAPI.PageSegMode.PSM_SINGLE_LINE;
+                else if (typing) segmentation = TessBaseAPI.PageSegMode.PSM_SINGLE_BLOCK;
                 else if (math) segmentation = TessBaseAPI.PageSegMode.PSM_SPARSE_TEXT;
                 engine.setPageSegMode(segmentation);
                 engine.setImage(source);

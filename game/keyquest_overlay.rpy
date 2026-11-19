@@ -119,8 +119,8 @@ screen _keyquest_drag_guard():
 
 screen _keyquest_launcher():
     zorder 990
-    $ tile_run = renpy.has_screen("_keyquest_minigame_run") and _keyquest_tile_run_active()
-    if not tile_run and not renpy.get_screen("_keyquest_ocr_capture"):
+    $ minigame_run = renpy.has_screen("_keyquest_minigame_run") and renpy.get_screen("_keyquest_minigame_run") is not None
+    if not minigame_run and not renpy.get_screen("_keyquest_ocr_capture"):
         $ position = persistent.keyquest_panel_positions.get("keyquest-launcher")
         draggroup:
             drag:

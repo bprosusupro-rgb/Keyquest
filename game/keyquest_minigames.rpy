@@ -14,6 +14,9 @@ init python:
         sequence = ()
         baseline = None
         lit = None
+        color_event = None
+        color_order = ()
+        idle_samples = 0
         tile_result = None
         tile_busy = False
         tile_generation = 0
@@ -145,10 +148,15 @@ init python:
         return tuple(result)
 
     def _keyquest_color_layout(colors):
-        red, blue, green, yellow = colors
-        return (red[0] - max(red[1:]) >= 40 and blue[2] - max(blue[:2]) >= 40
-                and green[1] - max(green[0], green[2]) >= 40
-                and min(yellow[:2]) - yellow[2] >= 40)
+        order = []
+        for red, green, blue in colors:
+            scores = (red - max(green, blue), blue - max(red, green),
+                      green - max(red, blue), min(red, green) - blue)
+            strongest = max(scores)
+            if strongest < 40:
+                return ()
+            order.append(scores.index(strongest))
+        return tuple(order) if len(set(order)) == 4 else ()
 
     def _keyquest_flash(baseline, colors, current):
         changes = [sum(abs(a - b) for a, b in zip(old, new)) for old, new in zip(baseline, colors)]
@@ -156,17 +164,25 @@ init python:
         largest, second = order[:2]
         if changes[largest] < 32:
             return None
-        if changes[largest] >= 52 and changes[second] < 45:
+        if changes[largest] >= 52 and changes[largest] - changes[second] >= 24:
             return largest
         return current
+
+    def _keyquest_color_label(name, abnormal):
+        state = _keyquest_minigame
+        if state.job == "watch" and name == "minigame_repeat_pattern_interaction_phase_start":
+            state.color_event = "ready"
+        elif state.job == "color-play":
+            if name == "minigame_repeat_pattern_wrong_button":
+                state.color_event = "wrong"
+            elif name in ("minigame_repeat_pattern_got_all_right", "minigame_repeat_pattern_end",
+                          "minigame_repeat_pattern_interaction_phase_preparation"):
+                state.color_event = "finished"
 
     def _keyquest_append_color(index):
         state = _keyquest_minigame
         if len(state.sequence) < 32:
             state.sequence += (index,)
-
-    def _keyquest_tile_run_active():
-        return (_keyquest_minigame.job or "").startswith("tile-")
 
     def _keyquest_tile_stop_position(board, screen_width, screen_height, width, height):
         left, top, right, bottom = board
@@ -192,6 +208,7 @@ init python:
         state.message = ""
         state.deadline = _kq_puzzle_time.time() + (22 + len(state.moves) if job == "tile-play" else 22)
         state.next_tap = 0.0
+        state.color_event = None
         state.tile_seen = None
         state.tile_seen_count = 0
         state.tile_wait_until = 0.0
@@ -200,7 +217,7 @@ init python:
             for step in state.moves:
                 target = _keyquest_slide_tile(target, step)
             state.tile_target = target
-        if _keyquest_tile_run_active():
+        if job.startswith("tile-") or job in ("watch", "color-play"):
             for panel in ("_keyquest_keyboard", "_keyquest_values", "_keyquest_automation", "_keyquest_pick_target"):
                 renpy.hide_screen(panel)
         if job == "tile-scan":
@@ -210,6 +227,8 @@ init python:
         if job == "watch":
             state.sequence = ()
             state.baseline = None
+            state.color_order = ()
+            state.idle_samples = 0
             state.lit = None
         if job == "color-play":
             state.pending = tuple(state.sequence)
@@ -578,14 +597,22 @@ init python:
 
     def _keyquest_observe_tiles(samples, signatures, current, expected):
         empty = [index for index, pixels in enumerate(samples) if sum(max(p) <= 31 for p in pixels) >= 7]
+        matching = []
+        for board in (expected, current):
+            if board is None or board.index(0) not in empty:
+                continue
+            distances = [_keyquest_tile_appearance(samples[i], signatures[tile])
+                         for i, tile in enumerate(board)]
+            if max(distances) <= 28:
+                matching.append((sum(distances), board))
+        if len(matching) == 1:
+            return matching[0][1]
+        if len(matching) == 2:
+            matching.sort()
+            return matching[0][1] if matching[1][0] - matching[0][0] >= 8 else None
         if len(empty) != 1:
             return None
         blank = empty[0]
-        for board in (expected, current):
-            if board is not None and board.index(0) == blank and all(
-                    _keyquest_tile_appearance(samples[i], signatures[tile]) <= 28
-                    for i, tile in enumerate(board) if tile):
-                return board
 
         # Replan only when each tile has an unambiguous visual identity.
         identified = []
@@ -681,27 +708,43 @@ init python:
             return
         try:
             if job == "watch":
+                if state.color_event == "ready":
+                    _keyquest_show_minigame("%d flashes recorded. Check the sequence, then press Play." % len(state.sequence))
+                    return
                 colors = _keyquest_color_sample(_keyquest_frame(), _keyquest_board())
                 if state.baseline is None:
-                    if not _keyquest_color_layout(colors):
-                        _keyquest_show_minigame("Could not find red, blue, green and yellow. Check the corners and start when the colors are idle.")
-                        return
-                    state.baseline = colors
+                    order = _keyquest_color_layout(colors)
+                    if order:
+                        state.baseline = colors
+                        state.color_order = order
                     return
                 hit = _keyquest_flash(state.baseline, colors, state.lit)
-                if hit != state.lit:
-                    state.lit = hit
-                    if hit is not None:
-                        _keyquest_append_color(hit)
+                if hit is None:
+                    state.idle_samples += 1
+                    if state.idle_samples >= 2:
+                        state.lit = None
+                else:
+                    state.idle_samples = 0
+                    if hit != state.lit:
+                        state.lit = hit
+                        _keyquest_append_color(state.color_order[hit])
+                        _keyquest_trace("color_flash", index=hit, count=len(state.sequence))
                         renpy.restart_interaction()
             elif job == "color-play":
-                if state.next_tap == 0 and not _keyquest_color_layout(_keyquest_color_sample(_keyquest_frame(), _keyquest_board())):
-                    _keyquest_show_minigame("The color board is no longer visible. Check the corners before playing.")
+                if state.color_event == "wrong":
+                    _keyquest_show_minigame("The game rejected a color. Record the next full pattern before playing again.")
                     return
-                if not state.pending:
+                if state.color_event == "finished" or not state.pending:
                     _keyquest_show_minigame("Sequence finished. Record again for the next round.")
                     return
-                _keyquest_puzzle_click(state.pending[0], 2)
+                if state.next_tap == 0:
+                    state.color_order = _keyquest_color_layout(_keyquest_color_sample(_keyquest_frame(), _keyquest_board()))
+                    if not state.color_order:
+                        _keyquest_show_minigame("Could not find all four colors. Check the corners and wait for the board.")
+                        return
+                index = state.color_order.index(state.pending[0])
+                _keyquest_trace("color_tap", index=index, remaining=len(state.pending))
+                _keyquest_puzzle_click(index, 2)
                 state.pending = state.pending[1:]
                 state.next_tap = now + 0.48
             elif job == "tile-scan":
@@ -823,18 +866,29 @@ screen _keyquest_minigame_delay():
 screen _keyquest_minigame_run():
     zorder 997
     $ helper = _keyquest_minigame
-    timer (0.075 if helper.job == "watch" else 0.14) repeat True action Function(_keyquest_minigame_tick, _update_screens=False)
-    if _keyquest_tile_run_active():
+    timer (0.05 if helper.job == "watch" else 0.14) repeat True action Function(_keyquest_minigame_tick, _update_screens=False)
+    if helper.job != "watch":
         $ size = (112, 48)
         $ position = _keyquest_tile_stop_position(_keyquest_board(), config.screen_width, config.screen_height, *size)
         key "game_menu" action Function(_keyquest_show_minigame, "Stopped.")
         if position is not None:
             textbutton "Stop" style "keyquest_deck_key" pos position xysize size action Function(_keyquest_show_minigame, "Stopped.")
     else:
-        use _keyquest_floating("minigame-run", "Minigame helper", 420, 180, (0.97, 0.98)):
-            if helper.job == "watch":
-                text ("%d flashes recorded" % len(helper.sequence)) color "#eff8ff" size 21
-                textbutton "Finish recording" style "keyquest_deck_accent" action Function(_keyquest_show_minigame)
-            else:
-                text "Playing sequence…" color "#eff8ff" size 21
-                textbutton "Stop" style "keyquest_deck_key" action Function(_keyquest_show_minigame, "Stopped.")
+        $ size = (284, 48)
+        $ position = _keyquest_tile_stop_position(_keyquest_board(), config.screen_width, config.screen_height, *size)
+        key "game_menu" action Function(_keyquest_show_minigame)
+        if position is not None:
+            textbutton ("Finish · %d flashes" % len(helper.sequence)) style "keyquest_deck_key" pos position xysize size action Function(_keyquest_show_minigame)
+
+init 999 python:
+    if hasattr(renpy.config, "label_callbacks"):
+        config.label_callbacks.append(_keyquest_color_label)
+    else:
+        _keyquest_before_color_label = config.label_callback
+
+        def _keyquest_color_legacy_label(name, abnormal):
+            _keyquest_color_label(name, abnormal)
+            if _keyquest_before_color_label is not None:
+                return _keyquest_before_color_label(name, abnormal)
+
+        config.label_callback = _keyquest_color_legacy_label

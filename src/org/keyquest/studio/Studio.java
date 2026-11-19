@@ -286,7 +286,7 @@ public final class Studio extends Activity {
                 + ".x profile matched from engine files. Ready to build.";
         if (result.engineVersion == null) return "Ren’Py game detected. The engine version could not be confirmed.";
         if (!result.canBuild()) return "Ren’Py " + result.engineVersion
-                + " detected. Built-in profiles cover 7.8 and 8.0–8.5.";
+                + " detected. Built-in profiles cover 7.5, 7.8, and 8.0–8.5.";
         return "Ren’Py " + result.engineVersion + " detected. Ready to build.";
     }
 

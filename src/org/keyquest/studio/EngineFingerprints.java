@@ -15,6 +15,14 @@ final class EngineFingerprints {
     // Full SHA-256 and Ren'Py source digest from the representative profile SDKs.
     // Regenerate rows with tools/fingerprint-sdk.py.
     private static final Profile[] PROFILES = {
+        new Profile("7.5",
+            "d683844a2c1d10560b2a688f0e6a8155a1a426484258c2f4d0fec704b950c2cb:0bc24277301a0e5dc5252c629d9f99a8",
+            "54acabc0670f595dc16c1f2a700fd57c5452900aeb4b976ac5790994105e7ff8:b248858374614b987be668addd1e5311",
+            "a58a64545768e182509fe01b9a3f18e6ed4249e33fa5b16dbd3698c07ede9a63:4a06f239d5f0d298e57c67fcb123e9fb",
+            "1096ce45177286d57ee50dcfd0f22ed3e3110ec7a00c1d426b611fc24669f8cb:0432efe73d8bb920b67d28e5cad4e32d",
+            "13aece9db262090d662ccfca0b760412dd82f604a1aaa560e68c744466ed5c7f:028804065d7ab291b0f13ae9edeed462",
+            "23d0491663289047b444c3749f13de599cae9f0859c8e8884762b6b456f25639:c6f87f317ada29a7ed48b04b0482241f",
+            "4e02d585cc9fd64b37ac1622c4085d0155e238071d0e1e5131a4b965cc344c33:66cacb5d9284b56fc4ba53a4b068b7e0"),
         new Profile("7.8",
             "1e2e700eee93aaa7bd81f8b88ca0eeb5fe345860be49d860d3f896fecd98e7f5:999b4cdfcf8169435c8be3af0257ce08",
             "0993a5ecd6fd151e951ec0cb15eb0059435ef56337878910d29462108b083c97:21e09385b0ebdeb3e647f1f74864bedb",
