@@ -1,7 +1,7 @@
 # Local recognition in the game process. Only screenshot capture touches Ren'Py's renderer.
 
 init python:
-    def _keyquest_ocr_crop(width, height, region):
+    def _keyquest_ocr_crop(width, height, region, mode=None):
         if min(width, height) < 8:
             return None
         if region == "top":
@@ -9,6 +9,8 @@ init python:
         if region == "center":
             return (width // 10, height // 4, width * 4 // 5, height // 2)
         if region == "bottom":
+            if mode == "text":
+                return (width // 10, height * 17 // 25, width * 4 // 5, height * 3 // 10)
             return (width // 5, height * 17 // 25, width * 3 // 5, height // 4)
         if region == "typing":
             return (width // 50, height * 3 // 5, width * 24 // 25, height * 39 // 100)
@@ -67,7 +69,7 @@ init python:
             digits = mode.startswith("digits")
             try:
                 width, height = self.width(image), self.height(image)
-                area = _keyquest_ocr_crop(width, height, region)
+                area = _keyquest_ocr_crop(width, height, region, mode)
                 if area is not None:
                     box = self.box(*area)
                     if not box:

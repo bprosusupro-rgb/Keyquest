@@ -37,6 +37,7 @@ init 999 python:
     crop_x, crop_y, crop_width, crop_height = _keyquest_ocr_crop(1920, 1080, "typing")
     assert crop_x <= 40 and crop_x + crop_width >= 1880
     assert crop_y <= 650 and crop_y + crop_height >= 1050
+    assert _keyquest_ocr_crop(1920, 1080, "bottom", "text")[0] < 330
     phrase = u"Hello from Keyquest! " * 5 + u"café"
     _keyquest_insert_text(phrase)
     posted = [ev.text for ev in pygame.event.get() if ev.type == pygame.TEXTINPUT]
@@ -135,6 +136,17 @@ label start:
     $ actual = renpy.input("Test in-game OCR text")
     $ assert actual == typing_prompt, actual
     $ print("Keyquest text reached the active game field.")
+    hide screen _keyquest_test_typing
+    show screen _keyquest_test_exact_prompt
+    $ exact_prompt = u"The bosses were only slightly better than ripping my toenail off."
+    $ actual = renpy.input(exact_prompt, default="A partial attempt")
+    $ assert actual == exact_prompt, actual
+    $ assert "keyquest_active_input_prompt" not in renpy.session
+    $ print("Keyquest replaced the draft with the complete game prompt.")
+    hide screen _keyquest_test_exact_prompt
+    call screen _keyquest_test_custom_prompt
+    $ assert _return == exact_prompt, _return
+    $ print("Keyquest read a custom typing screen directly.")
     $ renpy.quit()
 
 init python:
@@ -162,6 +174,25 @@ init python:
 screen _keyquest_test_typing():
     timer 0.25 action Function(_keyquest_test_type_result, _update_screens=False)
     timer 0.75 action Function(_keyquest_press, "RETURN", _update_screens=False)
+
+screen _keyquest_test_exact_prompt():
+    timer 0.25 action Function(_keyquest_ocr_begin, "text", "full", "show")
+    timer 0.5 action Function(_keyquest_test_check_preview, _update_screens=False)
+    timer 0.75 action Function(_keyquest_press, "RETURN", _update_screens=False)
+
+screen _keyquest_test_custom_prompt():
+    vbox:
+        text exact_prompt
+        input default "Misspelled text"
+    timer 0.25 action Function(_keyquest_ocr_begin, "text", "typing", "type")
+    timer 0.75 action Function(_keyquest_press, "RETURN", _update_screens=False)
+
+init python:
+    def _keyquest_test_check_preview():
+        preview = renpy.get_screen("_keyquest_ocr_result")
+        if preview is None or not preview.scope["from_game"] or preview.scope["result"] != exact_prompt:
+            raise AssertionError("The game prompt was not shown exactly.")
+        _keyquest_type_prompt(preview.scope["result"])
 
 screen _keyquest_test_key_order():
     key "K_s" action Function(observed_keys.append, "s", _update_screens=False)

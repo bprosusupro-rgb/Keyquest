@@ -159,6 +159,86 @@ init python:
 
     config.after_load_callbacks.append(_keyquest_ocr_reset)
 
+    def _keyquest_tracked_input(prompt, *args, **kwargs):
+        key = "keyquest_active_input_prompt"
+        previous = renpy.session.get(key)
+        renpy.session[key] = prompt
+        try:
+            return _keyquest_original_input(prompt, *args, **kwargs)
+        finally:
+            if previous is None:
+                renpy.session.pop(key, None)
+            else:
+                renpy.session[key] = previous
+
+    def _keyquest_prompt_words(text):
+        text = renpy.filter_text_tags(text, allow=[])
+        text = _kq_re.split(r"\s*\(?type\s+the\s+(?:line|sentence)\s+above\b", text, 1, flags=_kq_re.I)[0]
+        text = _kq_re.sub(r"[ \t]*[\r\n]+[ \t]*", " ", text.strip())
+        if 5 <= len(text.split()) and len(text) <= 512 and text.rstrip(u'"”’').rstrip("'").endswith((".", "!", "?")):
+            return text
+        return None
+
+    def _keyquest_visible_prompt():
+        input_type = renpy.display.behavior.Input
+        text_type = renpy.text.text.Text
+        active_prompt = renpy.session.get("keyquest_active_input_prompt")
+        inputs, choices = {}, set()
+        for root in renpy.game.context().scene_lists.get_all_displayables(current=True):
+            scope = getattr(root, "scope", None)
+            stack = [root]
+            seen = set()
+            fields, texts = {}, []
+            while stack:
+                item = stack.pop()
+                if item is None or id(item) in seen:
+                    continue
+                seen.add(id(item))
+                if isinstance(item, input_type):
+                    if item.editable and not getattr(item, "mask", None):
+                        fields[id(item)] = item
+                elif isinstance(item, text_type):
+                    parts = getattr(item, "text", None)
+                    if parts and all(isinstance(part, (type(u""), str)) for part in parts):
+                        texts.append(u"".join(parts))
+                else:
+                    stack.extend(item.visit())
+            if not fields:
+                continue
+            inputs.update(fields)
+            raw = scope.get("prompt") if scope is not None else None
+            raw = raw or active_prompt
+            if raw is not None:
+                texts = [renpy.substitutions.substitute(raw, scope=scope)[0]]
+            for line in texts:
+                sentence = _keyquest_prompt_words(line)
+                if sentence:
+                    choices.add(sentence)
+        if len(inputs) == 1 and len(choices) == 1:
+            return choices.pop(), next(iter(inputs.values()))
+        return None, None
+
+    def _keyquest_type_prompt(text):
+        current, field = _keyquest_visible_prompt()
+        if current != text or field is None:
+            _keyquest_ocr_return("The prompt changed. Open the current round and try again.")
+            return
+        if ((field.length and len(text) > field.length)
+                or any(field.allow and (not field.allow.search(c) if hasattr(field.allow, "search") else c not in field.allow)
+                       or field.exclude and (field.exclude.search(c) if hasattr(field.exclude, "search") else c in field.exclude)
+                       for c in text)):
+            _keyquest_ocr_return("The game field cannot hold the full prompt.")
+            return
+        field.old_caret_pos = field.caret_pos
+        field.caret_pos = len(text)
+        field.update_text(text, field.editable, check_size=True)
+        if field.content != text:
+            _keyquest_ocr_return("The game field could not fit the full prompt.")
+            return
+        _keyquest_trace("typing_prompt_filled", length=len(text))
+        _keyquest_ocr_reset()
+        renpy.restart_interaction()
+
     def _keyquest_ocr_begin(mode, region, destination="show", repeat_settings=((), 3, 0.15)):
         _keyquest_trace("ocr_started", mode=mode, region=region, destination=destination)
         _keyquest_ocr_reset()
@@ -170,6 +250,15 @@ init python:
         state.destination = destination
         state.repeat_settings = repeat_settings
         renpy.hide_screen("_keyquest_smart_input")
+        if mode == "text" and region in ("typing", "full", "bottom"):
+            prompt, _ = _keyquest_visible_prompt()
+            if prompt is not None:
+                if destination == "type":
+                    _keyquest_type_prompt(prompt)
+                else:
+                    renpy.show_screen("_keyquest_ocr_result", mode=mode, region=region, result=prompt, from_game=True)
+                    renpy.restart_interaction()
+                return
         if not renpy.android:
             _keyquest_ocr_return("Screen scanning is available in the Android game.")
             return
@@ -269,7 +358,7 @@ init python:
             crop = bitmap
             try:
                 width, height = bitmap.getWidth(), bitmap.getHeight()
-                area = _keyquest_ocr_crop(width, height, region)
+                area = _keyquest_ocr_crop(width, height, region, state.mode)
                 if area is not None:
                     crop = autoclass("android.graphics.Bitmap").createBitmap(bitmap, *area)
                 stream = autoclass("java.io.ByteArrayOutputStream")()
@@ -373,11 +462,15 @@ init python:
             output = prompt
             if output is None:
                 if state.region == "typing":
-                    _keyquest_ocr_return("Could not isolate the typing prompt. Keep the entire box visible and scan again.")
-                    return
-                output = text.strip() if state.destination == "show" else u" ".join(text.split())
+                    candidates = set(filter(None, (_keyquest_prompt_words(line) for line in text.splitlines())))
+                    if len(candidates) != 1:
+                        _keyquest_ocr_return("Could not isolate the typing prompt. Keep the entire box visible and scan again.")
+                        return
+                    output = candidates.pop()
+                else:
+                    output = text.strip() if state.destination == "show" else u" ".join(text.split())
         _keyquest_ocr_reset()
-        if state.destination == "show":
+        if state.destination == "show" or (state.mode == "text" and state.region == "typing"):
             renpy.show_screen("_keyquest_ocr_result", mode=state.mode, region=state.region, result=output)
             renpy.restart_interaction()
             return
@@ -599,10 +692,14 @@ screen _keyquest_smart_input(initial_mode="text", initial_region="full", initial
             elif mode == "math":
                 textbutton "Watch for answers" style "keyquest_deck_key" action Function(_keyquest_watch_start, "math", "bottom" if region == "typing" else region)
 
-screen _keyquest_ocr_result(mode, region, result):
+init 998 python:
+    _keyquest_original_input = renpy.input
+    renpy.input = _keyquest_tracked_input
+
+screen _keyquest_ocr_result(mode, region, result, from_game=False):
     zorder 995
-    use _keyquest_floating("ocr-result", "OCR result", 810 if mode == "text" else 520, 420 if mode == "text" else 300, (0.5, 0.12)):
-        text ("Answer" if mode == "math" else "Recognized text") color "#b9d3e8" size 22
+    use _keyquest_floating("ocr-result", "Game prompt" if from_game else "OCR result", 810 if mode == "text" else 520, 420 if mode == "text" else 300, (0.5, 0.12)):
+        text ("Answer" if mode == "math" else ("Exact game text" if from_game else "Recognized text")) color "#b9d3e8" size 22
         if mode == "text":
             viewport:
                 xsize 772
@@ -615,7 +712,11 @@ screen _keyquest_ocr_result(mode, region, result):
             text result.replace("{", "{{") substitute False color "#eff8ff" size 48 xmaximum 480
         hbox:
             spacing 6
-            textbutton "Scan again" style "keyquest_deck_accent" action Function(_keyquest_ocr_begin, mode, region, "show")
+            if from_game:
+                textbutton "Type exact prompt" style "keyquest_deck_accent" action Function(_keyquest_type_prompt, result)
+            elif mode == "text" and region == "typing":
+                textbutton "Type reviewed text" style "keyquest_deck_key" action [Hide("_keyquest_ocr_result"), Function(_keyquest_insert_text, result)]
+            textbutton "Scan again" style "keyquest_deck_key" action Function(_keyquest_ocr_begin, mode, region, "show")
             textbutton "Close" style "keyquest_deck_key" action Hide("_keyquest_ocr_result")
 
 screen _keyquest_ocr_capture():
