@@ -30,6 +30,7 @@ init python:
         signatures = {}
         pending = None
         tile_target = ()
+        tile_frame = None
         tile_seen = None
         tile_seen_count = 0
         tile_wait_until = 0.0
@@ -221,6 +222,7 @@ init python:
             for panel in ("_keyquest_keyboard", "_keyquest_values", "_keyquest_automation", "_keyquest_pick_target"):
                 renpy.hide_screen(panel)
         if job == "tile-scan":
+            state.tile_frame = None
             state.moves = ()
             state.tile_goal = ()
             state.tile_thumbnails = {}
@@ -595,6 +597,29 @@ init python:
                            for pixel, original in zip(colors, reference))
         return sum(distances[:-2]) / float(len(distances) - 2)
 
+    def _keyquest_tile_transition(samples, previous, current, expected):
+        if previous is None:
+            return None
+        changes = [_keyquest_tile_appearance(pixels, old) for pixels, old in zip(samples, previous)]
+        if max(changes) <= 10:
+            return current
+        if expected is None:
+            return None
+        destination = current.index(0)
+        source = expected.index(0)
+        if any(change > 24 for index, change in enumerate(changes) if index not in (source, destination)):
+            return None
+        # A legal slide changes two cells. Compare with the frame immediately
+        # before the tap, since calibration can sample a moved tile differently.
+        moved = _keyquest_tile_appearance(samples[destination], previous[source])
+        blank = _keyquest_tile_appearance(samples[source], previous[destination])
+        dark = sum(max(pixel) <= 42 for pixel in samples[source])
+        if (changes[source] >= 10 and moved <= 48 and moved + 8 <= changes[destination]
+                and (dark >= 5 or blank + 8 <= changes[source]
+                     or (moved <= 18 and changes[source] >= 52))):
+            return expected
+        return None
+
     def _keyquest_observe_tiles(samples, signatures, current, expected):
         empty = [index for index, pixels in enumerate(samples) if sum(max(p) <= 31 for p in pixels) >= 7]
         matching = []
@@ -637,7 +662,7 @@ init python:
         state.next_tap = now + 0.23
         _keyquest_puzzle_click(index, state.tile_side)
 
-    def _keyquest_accept_tile_board(state, observed, expected, now):
+    def _keyquest_accept_tile_board(state, observed, expected, now, samples):
         state.pending = None
         state.tile_wait_until = 0.0
         state.next_tap = now + 0.16
@@ -651,6 +676,7 @@ init python:
                 _keyquest_show_minigame("Could not match the changed board. Scan it again.", clear_moves=True)
                 return
         state.tiles = observed
+        state.tile_frame = samples
         if not state.moves:
             _keyquest_show_minigame("The planned tile moves are complete.")
         elif state.job == "tile-step":
@@ -662,16 +688,23 @@ init python:
         frame, board, side = _keyquest_frame(), _keyquest_board(), state.tile_side
         samples = tuple(_keyquest_cell_samples(frame, board, side, i, _keyquest_tile_centers)
                         for i in range(side * side))
-        observed = _keyquest_observe_tiles(samples, state.signatures, state.tiles, expected)
-        if observed != state.tile_seen:
-            _keyquest_trace("tile_observed", board=observed, waiting_for=expected)
+        # Play can also resume after an interrupted verification. Check the
+        # planned slide against the last confirmed frame before sending it again.
+        planned = expected or _keyquest_slide_tile(state.tiles, state.moves[0])
+        observed = _keyquest_tile_transition(samples, state.tile_frame, state.tiles, planned)
+        match = "frame" if observed is not None else "scan"
+        if observed is None:
+            observed = _keyquest_observe_tiles(samples, state.signatures, state.tiles, planned)
+        if state.tile_seen_count == 0 or observed != state.tile_seen:
+            _keyquest_trace("tile_observed", board=observed, waiting_for=expected,
+                            match=match if observed is not None else "unreadable")
             state.tile_seen = observed
             state.tile_seen_count = 0
         state.tile_seen_count += 1
         stable = observed is not None and state.tile_seen_count >= 2
 
         if stable and observed != state.tiles:
-            _keyquest_accept_tile_board(state, observed, expected, now)
+            _keyquest_accept_tile_board(state, observed, planned, now, samples)
         elif state.pending:
             if now < until:
                 return
@@ -681,13 +714,19 @@ init python:
                 _keyquest_trace("tile_wait_expired", reason="tap_ignored")
                 _keyquest_show_minigame("The tile did not respond. Tap Play to retry.")
             elif now >= until + 2.0:
-                _keyquest_trace("tile_wait_expired", reason="move_unconfirmed")
+                source, destination = expected.index(0), state.tiles.index(0)
+                _keyquest_trace("tile_wait_expired", reason="move_unconfirmed",
+                                source=source, destination=destination,
+                                dark_samples=sum(max(pixel) <= 42 for pixel in samples[source]),
+                                tile_difference=int(_keyquest_tile_appearance(
+                                    samples[destination], state.tile_frame[source])))
                 final_move = len(state.moves) == 1
                 message = ("Last move sent. Check the game result." if final_move
                            else "The board could not be confirmed. Tap Play to check it again, or scan a new board.")
                 _keyquest_show_minigame(message, clear_moves=final_move)
         elif stable:
             state.tile_wait_until = 0.0
+            state.tile_frame = samples
             _keyquest_send_tile_move(state, now)
         elif not state.tile_wait_until:
             state.tile_wait_until = now + 3.0
@@ -762,6 +801,7 @@ init python:
                 else:
                     _keyquest_trace("tiles_scanned", board=tiles, moves=len(moves), review=bool(goal))
                     state.tiles, state.signatures, state.moves = tiles, signatures, moves
+                    state.tile_frame = tuple(signatures[tile] for tile in tiles)
                     state.tile_goal = goal
                     _keyquest_trace("tile_goal_source", source="numbers" if numbered else "picture")
                     if goal:

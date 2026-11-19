@@ -2,6 +2,7 @@ default _test_colors = ("#d60000", "#0000c2", "#01cf00", "#d7cf00")
 default _test_pressed = []
 default _test_reject_color = False
 default _test_hit_count = 0
+default _test_dim_blank = False
 default _test_tiles = (1, 2, 3, 4, 5, 6, 7, 0, 8)
 
 init 999 python:
@@ -12,6 +13,19 @@ init 999 python:
     assert _keyquest_observe_tiles(dark_moved, dark_signatures, old_tiles, new_tiles) == new_tiles
     ambiguous = (((9, 10, 12),) * 9,) * 2 + (dark_signatures[2],)
     assert _keyquest_observe_tiles(ambiguous, dark_signatures, old_tiles, new_tiles) is None
+    log_board = (2, 3, 0, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)
+    log_expected = _keyquest_slide_tile(log_board, 6)
+    log_reference = tuple(((0, 0, 0),) * 9 if not tile else
+                          ((100 + tile * 4, 150, 140),) * 9 for tile in log_board)
+    log_frame = list(log_reference)
+    log_frame[2] = ((163, 186, 176),) * 9
+    log_frame[6] = ((36, 36, 36),) * 9
+    log_signatures = dict(zip(log_board, log_reference))
+    assert _keyquest_observe_tiles(log_frame, log_signatures, log_board, log_expected) is None
+    assert _keyquest_tile_transition(log_frame, log_reference, log_board, log_expected) == log_expected
+    assert _keyquest_tile_transition(log_reference, log_reference, log_board, log_expected) == log_board
+    log_frame[7] = ((15, 15, 15),) * 9
+    assert _keyquest_tile_transition(log_frame, log_reference, log_board, log_expected) is None
 
     def _test_press_color(index):
         _test_pressed.append(index)
@@ -79,6 +93,8 @@ init 999 python:
         if side == 3 and _test_hit_count == 1:
             return
         renpy.store._test_tiles = _keyquest_slide_tile(_test_tiles, index)
+        if side == 4:
+            renpy.store._test_dim_blank = True
 
 label start:
     $ persistent.keyquest_minigame_boards = {"colors": (0.17, 0.17, 0.64, 0.61), "tiles": (0.30, 0.31, 0.95, 0.94)}
@@ -140,7 +156,11 @@ label start:
     show screen _kq_test_tiles(side=4)
     $ renpy.pause(0.25, hard=True)
     $ _keyquest_begin_minigame("tile-scan")
-    $ renpy.pause(1.7, hard=True)
+    python:
+        for _ in range(12):
+            if renpy.get_screen("_keyquest_tile_review") is not None:
+                break
+            renpy.pause(0.3, hard=True)
     $ assert renpy.get_screen("_keyquest_tile_review") is not None, _keyquest_minigame.message
     $ assert len(_keyquest_minigame.tile_thumbnails) == 15
     $ tiles = _keyquest_minigame.tiles
@@ -170,6 +190,21 @@ label start:
     $ assert _test_tiles == _test_goal4, _test_tiles
     $ assert not _keyquest_minigame.moves
     $ assert "complete" in _keyquest_minigame.message, _keyquest_minigame.message
+    hide screen _keyquest_minigames
+    $ _test_dim_blank = False
+    $ _test_tiles = (0,) + tuple(range(2, 17))
+    $ renpy.pause(0.25, hard=True)
+    python:
+        tiles, _, signatures = _keyquest_tile_scan(_keyquest_frame(), _keyquest_board(), 4)
+        _keyquest_minigame.tiles = tiles
+        _keyquest_minigame.signatures = signatures
+        _keyquest_minigame.tile_frame = None
+        _keyquest_minigame.moves = (1, 2, 6)
+        _keyquest_begin_minigame("tile-play")
+    $ renpy.pause(3.5, hard=True)
+    $ assert _test_tiles == log_expected, _test_tiles
+    $ assert _test_hit_count == 7, _test_hit_count
+    $ assert "complete" in _keyquest_minigame.message, _keyquest_minigame.message
     $ print("Keyquest minigame detection and verified clicks passed.")
     $ renpy.quit()
 
@@ -196,12 +231,12 @@ screen _kq_test_flashes():
 
 screen _kq_test_tiles(side=3):
     $ bounds = _keyquest_board()
-    $ palette = ("#000", "#f99", "#9f9", "#99f", "#ff9", "#f9f", "#9ff", "#aaa", "#a92", "#845", "#585", "#395", "#123", "#746", "#376", "#ac3")
+    $ palette = ("#000", "#f99", "#9f9", "#99f", "#ff9", "#f9f", "#9ff", "#aaa", "#a92", "#845", "#585", "#395", "#123", "#746", "#376", "#ac3", "#bf3")
     for index, tile in enumerate(_test_tiles):
         $ point = _keyquest_board_point(bounds, side, index)
         button:
             pos point
             anchor (0.5, 0.5)
             xysize (int(config.screen_width * (bounds[2] - bounds[0]) / side), int(config.screen_height * (bounds[3] - bounds[1]) / side))
-            background Solid(palette[tile])
+            background Solid("#242424" if tile == 0 and _test_dim_blank else palette[tile])
             action Function(_test_slide, index, side)
