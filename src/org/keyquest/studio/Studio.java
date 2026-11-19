@@ -351,6 +351,7 @@ public final class Studio extends Activity {
                 if (includeOcr) {
                     gameAssets.put(ApkBuilder.OCR, readAsset("keyquest_ocr_" + profileKey + ".rpyc"));
                     gameAssets.put(ApkBuilder.VISION_SCRIPT, readAsset("keyquest_vision_" + profileKey + ".rpyc"));
+                    gameAssets.put(ApkBuilder.MINIGAMES, readAsset("keyquest_minigames_" + profileKey + ".rpyc"));
                     gameAssets.put(ApkBuilder.VISION_PACK, readAsset("ocr/vision.zip", 16 * 1024 * 1024));
                 }
                 ApkBuilder.build(source, unsigned, result, gameAssets, signer(), libraryLabel, new BuildTimeline());

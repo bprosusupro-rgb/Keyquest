@@ -43,6 +43,15 @@ Enable **Include Smart Input** when building or updating the APK. In the game, o
 
 **Scan & show** and **Scan & type** capture one frame after the panel hides. Recognition runs locally in the game process when supported. **Type in game** uses the active game field’s text-input event and respects its character limits. The Android recognition round trip still needs verification on a Quest headset.
 
+### Color memory and picture tiles
+
+Open **Keyboard → OCR → Minigame helpers**. Each helper remembers its own board corners. Mark the upper-left and lower-right of the entire game board and move the floating controls clear of it.
+
+- **Color memory** supports the red, blue, green and yellow grid. Select **Record flashes** before the first flash, while all four pads are idle. When the game asks for the sequence, select **Finish recording**. Check or edit the sequence, then select **Play sequence**.
+- **Picture tiles** supports a 3 × 3 sliding picture with one dark empty slot and an intended blank in the bottom-right. Select **Scan tiles** to match picture edges. **Play one move** and **Play all moves** click the planned tiles and verify the board before advancing.
+
+I used the Quest screenshots to check color positions and picture reconstruction. A timed color round and game input on the headset still need verification.
+
 ### Optional value editor
 
 Before building, tick **Include local value editor**. In the patched game, tap the corner logo and choose **Values**. Select a suggested value such as `money` or enter the exact variable name. Tap **Edit new value**, enter a number, then tap **Apply value**. Use **Keys** if you need the on-screen keyboard.

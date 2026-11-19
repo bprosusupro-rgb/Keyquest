@@ -412,6 +412,8 @@ screen _keyquest_smart_input(initial_mode="text", initial_region="full", initial
             for choice, caption in (("text", "Copy text"), ("math", "Solve math"), ("repeat", "Repeat keys")):
                 textbutton caption style "keyquest_deck_key" selected (mode == choice) action SetScreenVariable("mode", choice)
             textbutton "Keyboard" style "keyquest_deck_key" action [Hide("_keyquest_smart_input"), Show("_keyquest_keyboard")]
+        if renpy.has_screen("_keyquest_minigames"):
+            textbutton "Minigame helpers" style "keyquest_deck_key" action [Hide("_keyquest_smart_input"), Show("_keyquest_minigames")]
         if status and mode == initial_mode:
             text status color "#fff0c8" size 19 substitute False
         if mode == "repeat":
