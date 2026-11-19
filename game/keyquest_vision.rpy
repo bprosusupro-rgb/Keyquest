@@ -14,6 +14,8 @@ init python:
             return (width // 5, height * 17 // 25, width * 3 // 5, height // 4)
         if region == "typing":
             return (width // 50, height * 3 // 5, width * 24 // 25, height * 39 // 100)
+        if region == "race-banner":
+            return (width * 27 // 100, height * 15 // 100, width * 46 // 100, height * 13 // 100)
         if region == "race":
             return (width * 23 // 100, height // 8, width * 54 // 100, height * 3 // 16)
         return None
@@ -69,6 +71,7 @@ init python:
             digits = mode.startswith("digits")
             try:
                 width, height = self.width(image), self.height(image)
+                race = region in ("race", "race-banner") and mode == "keys"
                 area = _keyquest_ocr_crop(width, height, region, mode)
                 if area is not None:
                     box = self.box(*area)
@@ -81,13 +84,12 @@ init python:
                     if not cropped:
                         raise ValueError("Could not crop game frame")
                 source = cropped or image
-                race = region == "race" and mode == "keys"
                 if digits:
                     self.set_variable(self.engine, b"tessedit_char_whitelist", b"0123456789")
                     if mode != "digits":
                         filtered = self.tile_label_mask(source)
                 if race:
-                    passes = ((7, 100), (7, 145), (7, None))
+                    passes = ((7, 100), (6, 145), (11, 100), (7, None))
                 elif digits:
                     passes = ((7 if mode == "digits-light" else 8, None),)
                 elif mode == "math" and region == "bottom":
@@ -201,7 +203,9 @@ init python:
                 try:
                     if self.engine is None:
                         self.prepare(root)
-                    text = self.engine.recognize(frame, region, mode, validate)
+                    text = self.engine.recognize(frame, "race-banner" if region == "race" else region, mode, validate)
+                    if not text and region == "race":
+                        text = self.engine.recognize(frame, region, mode, validate)
                     self.response = (request, text, None)
                 except Exception as error:
                     self.unavailable = True

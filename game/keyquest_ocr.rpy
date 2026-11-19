@@ -27,6 +27,7 @@ init python:
         watch_misses = 0
         next_scan = 0.0
         watch_source = None
+        race_keys = ()
 
         def __getstate__(self):
             # Android handles and the live OCR/log session belong to this process.
@@ -126,8 +127,8 @@ init python:
             match = _kq_re.match(r"^\s*[|!:.]*\s*(?:(?:press|tap|mash|alternate(?:\s+between)?)\b|keys?\s*:)\s*(.+)$", line, _kq_re.I)
             if not match:
                 continue
-            cue = _kq_re.split(r"\s+(?:rapidly|quickly|repeatedly|fast|now|to)\b", match.group(1), 1, flags=_kq_re.I)[0]
-            cue = cue.strip(" .!:").lower().replace(u"→", ",")
+            cue = _kq_re.split(r"\s+(?:rapidly|rapidiy|rapldly|quickly|repeatedly|fast|now|to)\b", match.group(1), 1, flags=_kq_re.I)[0]
+            cue = cue.strip(" .!:").lower().replace(u"→", ",").replace(u"×", "x")
             cue = cue.replace("[", "").replace("]", "").replace('"', "").replace(u"“", "").replace(u"”", "")
             if _kq_re.search(r"(?:\band|\bthen|[,/+&])$", cue):
                 continue
@@ -154,6 +155,7 @@ init python:
         state.activity = None
         state.watch = None
         state.watch_value = None
+        state.race_keys = ()
         renpy.store._keyquest_repeat_job = None
         for panel in ("_keyquest_ocr_capture", "_keyquest_ocr_wait", "_keyquest_ocr_result", "_keyquest_repeat_runner", "_keyquest_live_ocr"):
             renpy.hide_screen(panel)
@@ -189,7 +191,7 @@ init python:
                 continue
             seen.add(id(item))
             yield item
-            stack.extend(item.visit())
+            stack.extend(reversed(item.visit()))
 
     def _keyquest_drawn_text(item):
         parts = getattr(item, "text", None)
@@ -201,11 +203,18 @@ init python:
         text_type = renpy.text.text.Text
         lines = []
         for root in renpy.game.context().scene_lists.get_all_displayables(current=True):
+            fragments = []
             for item in _keyquest_display_tree(root):
                 if isinstance(item, text_type) and not isinstance(item, renpy.display.behavior.Input):
-                    text = _keyquest_drawn_text(item)
+                    text = _keyquest_drawn_text(item).strip()
+                    if text:
+                        fragments.append(text)
                     if _keyquest_read_key_cue(text):
                         lines.append(text)
+            for match in _kq_re.finditer(r"\b(?:press|tap|mash)\s+.{1,62}?\s+(?:rapidly|quickly|repeatedly|fast)\b",
+                                        u" ".join(fragments), _kq_re.I):
+                if _keyquest_read_key_cue(match.group()):
+                    lines.append(match.group())
         return u"\n".join(lines)
 
     def _keyquest_visible_prompt():
@@ -310,7 +319,7 @@ init python:
         if state.activity is None:
             return False
         detailed = region in ("race", "bottom", "typing")
-        limit = 1440 if region == "race" else (1920 if mode == "math" else (960 if state.watch and mode != "keys" and not detailed else 1440))
+        limit = 1920 if region == "race" or mode == "math" else (960 if state.watch and mode != "keys" and not detailed else 1440)
         size = _keyquest_capture_size(limit, detailed or mode == "math")
         if frame is None:
             frame = renpy.screenshot_to_bytes(size)
@@ -512,6 +521,27 @@ init python:
     def _keyquest_race_start(interval):
         _keyquest_watch_start("keys", "race", ((), 3, min(0.08, interval)))
 
+    def _keyquest_race_use_keys(sequence, interval):
+        _keyquest_race_start(interval)
+        state = _keyquest_scan_state
+        state.race_keys = tuple(sequence)
+        _keyquest_trace("race_prompt_source", source="selected", keys=len(sequence))
+
+    def _keyquest_race_edit_keys():
+        state = _keyquest_scan_state
+        keys = state.race_keys or state.watch_value or ()
+        interval = state.repeat_settings[2]
+        _keyquest_ocr_reset()
+        renpy.show_screen("_keyquest_smart_input", initial_mode="repeat", initial_region="race",
+                          initial_repeat=(keys, 3, interval), status="Select the letters on the race banner, then tap Race with keys.")
+        renpy.restart_interaction()
+
+    def _keyquest_race_label(name, abnormal):
+        state = _keyquest_scan_state
+        if state.watch == "keys" and state.region == "race" and name in (
+                "minigame_racing_lose", "minigame_racing_win", "minigame_racing_result"):
+            _keyquest_ocr_reset()
+
     def _keyquest_watch_start(mode, region, repeat_settings=((), 3, 0.15)):
         _keyquest_trace("ocr_watch_started", mode=mode, region=region)
         _keyquest_ocr_reset()
@@ -572,6 +602,8 @@ init python:
         if now - state.started > 60:
             _keyquest_ocr_return("Live OCR ended after one minute.")
             return
+        if state.race_keys:
+            return
         if state.watch == "keys":
             text = _keyquest_live_key_text()
             if _keyquest_read_key_cue(text):
@@ -616,11 +648,13 @@ init python:
 
     def _keyquest_watch_press():
         state = _keyquest_scan_state
+        keys = state.race_keys or state.watch_value
         if (_keyquest_panel_grabbed() or state.watch_paused or state.watch != "keys"
-                or not state.watch_value or not _keyquest_game_has_focus() or _kq_time.time() - state.watch_confirmed > _keyquest_watch_expiry()):
+                or not keys or not _keyquest_game_has_focus()
+                or (not state.race_keys and _kq_time.time() - state.watch_confirmed > _keyquest_watch_expiry())):
             return
-        key = state.watch_value[state.watch_index]
-        state.watch_index = (state.watch_index + 1) % len(state.watch_value)
+        key = keys[state.watch_index]
+        state.watch_index = (state.watch_index + 1) % len(keys)
         _keyquest_press_named(key)
 
     def _keyquest_press_named(key):
@@ -721,6 +755,7 @@ screen _keyquest_smart_input(initial_mode="text", initial_region="full", initial
                 spacing 6
                 textbutton "Race assist" style "keyquest_deck_accent" action Function(_keyquest_race_start, interval)
                 textbutton "Follow key prompts" style "keyquest_deck_key" action Function(_keyquest_watch_start, "keys", region, (sequence, loops, interval))
+                textbutton "Race with keys" style "keyquest_deck_key" sensitive (1 <= len(sequence) <= 2) action Function(_keyquest_race_use_keys, sequence, interval)
         else:
             hbox:
                 spacing 6
@@ -741,6 +776,19 @@ screen _keyquest_smart_input(initial_mode="text", initial_region="full", initial
 init 998 python:
     _keyquest_original_input = renpy.input
     renpy.input = _keyquest_tracked_input
+
+init 997 python:
+    if hasattr(renpy.config, "label_callbacks"):
+        config.label_callbacks.append(_keyquest_race_label)
+    else:
+        _keyquest_previous_race_label = config.label_callback
+
+        def _keyquest_legacy_race_label(name, abnormal):
+            _keyquest_race_label(name, abnormal)
+            if _keyquest_previous_race_label is not None:
+                return _keyquest_previous_race_label(name, abnormal)
+
+        config.label_callback = _keyquest_legacy_race_label
 
 screen _keyquest_ocr_result(mode, region, result, from_game=False):
     zorder 995
@@ -797,9 +845,13 @@ screen _keyquest_live_ocr():
     use _keyquest_floating("ocr-live", "Live OCR", 435, 160, (0.98, 0.04)):
         hbox:
             spacing 10
-            if live.watch_value is not None:
+            if live.race_keys:
+                text _keyquest_sequence_label(live.race_keys) color "#eff8ff" size 22 yalign 0.5
+            elif live.watch_value is not None:
                 $ caption = _keyquest_sequence_label(live.watch_value) if live.watch == "keys" else "Answer  " + live.watch_value
                 text caption color "#eff8ff" size 22 yalign 0.5 xmaximum 270
             else:
                 text "Watching…" color "#b9d3e8" size 20 yalign 0.5
-            textbutton "Stop OCR" style "keyquest_deck_key" action Function(_keyquest_ocr_reset)
+            if live.watch == "keys":
+                textbutton "Set keys" style "keyquest_deck_key" action Function(_keyquest_race_edit_keys)
+            textbutton "Stop" style "keyquest_deck_key" action Function(_keyquest_ocr_reset)

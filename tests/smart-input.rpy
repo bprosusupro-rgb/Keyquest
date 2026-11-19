@@ -159,6 +159,25 @@ label start:
     $ assert _keyquest_scan_state.watch_value is None
     $ _keyquest_ocr_reset()
     $ print("Keyquest sent both live race keys and stopped when the prompt disappeared.")
+    $ observed_keys = []
+    show screen _keyquest_test_split_race
+    $ _keyquest_watch_start("keys", "race", ((), 1, 0.10))
+    $ renpy.pause(0.75, hard=True)
+    $ assert observed_keys[:4] == ["x", "r", "x", "r"], observed_keys
+    hide screen _keyquest_test_split_race
+    $ _keyquest_ocr_reset()
+    $ renpy.pause(0.2, hard=True)
+    $ observed_keys = []
+    $ _keyquest_race_use_keys(("x", "r"), 0.08)
+    $ renpy.pause(0.55, hard=True)
+    $ assert observed_keys[:4] == ["x", "r", "x", "r"], observed_keys
+    $ _keyquest_race_label("minigame_racing_result", True)
+    $ assert _keyquest_scan_state.watch is None and not _keyquest_scan_state.race_keys
+    $ renpy.pause(0.12, hard=True)
+    $ count_at_finish = len(observed_keys)
+    $ renpy.pause(0.25, hard=True)
+    $ assert len(observed_keys) == count_at_finish
+    $ print("Keyquest tested split race prompts and selected X/R input through the finish.")
     $ renpy.quit()
 
 init python:
@@ -209,6 +228,16 @@ init python:
 screen _keyquest_test_key_order():
     key "K_s" action Function(observed_keys.append, "s", _update_screens=False)
     key "K_m" action Function(observed_keys.append, "m", _update_screens=False)
+    key "K_x" action Function(observed_keys.append, "x", _update_screens=False)
+    key "K_r" action Function(observed_keys.append, "r", _update_screens=False)
 
 screen _keyquest_test_race_cue():
     text "Press {b}S{/b} and m rapidly!"
+
+screen _keyquest_test_split_race():
+    hbox:
+        text "Press"
+        text "X"
+        text "and"
+        text "r"
+        text "rapidly!"
