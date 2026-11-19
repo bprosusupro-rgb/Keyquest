@@ -35,11 +35,11 @@ Automation uses Ren’Py/SDL2 events inside the rebuilt game. It is intended for
 
 Enable **Include Smart Input** when building or updating the APK. In the game, open **Keyboard → OCR**. Keep Keyquest Studio installed so the game can use its offline recognition engine.
 
-- **Copy text** reads English on the game screen and types it into the active field. Open the field before scanning.
-- **Solve math** reads one arithmetic expression and types the answer. It supports addition, subtraction, multiplication, division, and parentheses. Choose **Top** or **Center** if unrelated text makes it hard to find the problem.
-- **Repeat key** sends a key-down and key-up at the chosen interval. Pick a key and press count, then select **Start**. Select **Stop repeat** to end the run early.
+- **Copy text** reads English on the game screen. **Show result** displays it in the game, and **Type in game** sends it to the active text field.
+- **Solve math** reads one arithmetic expression and offers the same output options. It supports addition, subtraction, multiplication, division, and parentheses. Choose **Top** or **Center** if unrelated text makes it hard to find the problem.
+- **Repeat keys** runs one key or several in the order you enter them. Set the interval and loop count, then select **Start**. **Read keys** can fill the sequence from a visible prompt such as “Press S and I rapidly.” Check the detected keys before starting. When the prompt changes, select **Edit keys** to stop the current repeat and scan again or enter different keys. **Stop repeat** ends the run.
 
-**Scan & type** captures one frame after the panel folds away. Studio processes it locally and returns the text to the game. Text and math modes use the game's text-input event, and the game controls which characters it accepts. The Android recognition round trip still needs verification on a Quest headset.
+**Scan & show** and **Scan & type** capture one frame after the panel hides. Studio processes it locally and returns the text to the game. **Type in game** uses the active game field’s text-input event and respects its character limits. The Android recognition round trip still needs verification on a Quest headset.
 
 ### Optional value editor
 

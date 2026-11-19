@@ -12,6 +12,8 @@ init python:
         bridge = None
         mode = "text"
         region = "full"
+        destination = "show"
+        repeat_settings = ((), 3, 0.15)
 
     _keyquest_scan_state = _KeyquestScanState()
 
@@ -65,33 +67,53 @@ init python:
         formatted = ("%.6f" % result).rstrip("0").rstrip(".")
         return "0" if formatted == "-0" else formatted
 
+    def _keyquest_read_key_cue(text):
+        cues = set()
+        for line in text.splitlines():
+            match = _kq_re.match(r"^\s*(?:press|tap|keys?\s*:)\s*(.+)$", line, _kq_re.I)
+            if not match:
+                continue
+            cue = _kq_re.split(r"\s+(?:rapidly|quickly|repeatedly|now|to)\b", match.group(1), 1, flags=_kq_re.I)[0]
+            cue = cue.strip(" .!:").lower().replace(u"→", ",")
+            tokens = _kq_re.split(r"\s*(?:[,/+&]|\band\b|\bthen\b)\s*|\s+", cue)
+            tokens = tuple({"space": "SPACE", "enter": "RETURN"}.get(token, token) for token in tokens if token)
+            if 0 < len(tokens) <= 12 and all(
+                    token in ("SPACE", "RETURN") or _kq_re.match(r"^[a-z0-9]\Z", token) for token in tokens):
+                cues.add(tokens)
+        return cues.pop() if len(cues) == 1 else None
+
     def _keyquest_ocr_reset():
         state = _keyquest_scan_state
         state.request += 1
         state.response = None
         state.bridge = None
-        for panel in ("_keyquest_ocr_capture", "_keyquest_ocr_wait", "_keyquest_repeat_runner"):
+        renpy.store._keyquest_repeat_job = None
+        for panel in ("_keyquest_ocr_capture", "_keyquest_ocr_wait", "_keyquest_ocr_result", "_keyquest_repeat_runner"):
             renpy.hide_screen(panel)
 
     config.after_load_callbacks.append(_keyquest_ocr_reset)
 
-    def _keyquest_ocr_begin(mode, region):
+    def _keyquest_ocr_begin(mode, region, destination="show", repeat_settings=((), 3, 0.15)):
         _keyquest_ocr_reset()
         state = _keyquest_scan_state
         state.started = _kq_time.time()
         state.mode = mode
         state.region = region
+        state.destination = destination
+        state.repeat_settings = repeat_settings
         renpy.hide_screen("_keyquest_smart_input")
         if not renpy.android:
-            _keyquest_ocr_error("Screen scanning is available in the Android game.")
+            _keyquest_ocr_return("Screen scanning is available in the Android game.")
             return
         renpy.show_screen("_keyquest_ocr_capture")
 
-    def _keyquest_ocr_error(message):
+    def _keyquest_ocr_return(message, keys=None):
         state = _keyquest_scan_state
-        mode, region = state.mode, state.region
+        sequence, loops, interval = state.repeat_settings
         _keyquest_ocr_reset()
-        renpy.show_screen("_keyquest_smart_input", initial_mode=mode, initial_region=region, status=message)
+        renpy.show_screen("_keyquest_smart_input", initial_mode="repeat" if state.mode == "keys" else state.mode,
+                          initial_region=state.region, initial_destination=state.destination,
+                          initial_repeat=(sequence if keys is None else keys, loops, interval), status=message)
         renpy.restart_interaction()
 
     def _keyquest_ocr_capture_frame():
@@ -147,7 +169,7 @@ init python:
                 extras = autoclass("android.os.Bundle")()
                 extras.putByteArray("image", stream.toByteArray())
                 extras.putParcelable("reply", messenger)
-                extras.putBoolean("math", state.mode == "math")
+                extras.putBoolean("math", state.mode in ("math", "keys"))
                 intent = autoclass("android.content.Intent")()
                 intent.setClassName("org.keyquest.studio", "org.keyquest.studio.OcrActivity")
                 intent.addFlags(0x10000)  # FLAG_ACTIVITY_NO_ANIMATION
@@ -159,7 +181,7 @@ init python:
                 bitmap.recycle()
         except Exception as error:
             renpy.log("Keyquest OCR bridge: " + repr(error))
-            _keyquest_ocr_error("Could not start OCR. Update Keyquest Studio and try again.")
+            _keyquest_ocr_return("Could not start OCR. Update Keyquest Studio and try again.")
             return
         renpy.show_screen("_keyquest_ocr_wait")
         renpy.restart_interaction()
@@ -167,31 +189,43 @@ init python:
     def _keyquest_ocr_poll():
         state = _keyquest_scan_state
         if _kq_time.time() - state.started > 20:
-            _keyquest_ocr_error("The scan timed out. Try a smaller scan area.")
+            _keyquest_ocr_return("The scan timed out. Try a smaller scan area.")
             return
         response = state.response
         if response is None or response[0] != state.request:
             return
         # Android can deliver the result before the game's own window is active again.
-        if state.bridge is not None and not state.bridge[3].hasWindowFocus():
+        if (state.destination == "type" and state.mode != "keys"
+                and state.bridge is not None and not state.bridge[3].hasWindowFocus()):
             return
         _, text, error = response
         if error or not text:
-            _keyquest_ocr_error(error or "No text found. Try a smaller scan area.")
+            _keyquest_ocr_return(error or "No text found. Try a smaller scan area.")
+            return
+        if state.mode == "keys":
+            keys = _keyquest_read_key_cue(text)
+            if keys is None:
+                _keyquest_ocr_return("No clear key prompt found. Try Top or Center.")
+            else:
+                _keyquest_ocr_return("Check the detected keys, then press Start.", keys)
             return
         if state.mode == "math":
             output = _keyquest_math_answer(text)
             if output is None:
-                _keyquest_ocr_error("No single arithmetic problem found. Try Top or Center.")
+                _keyquest_ocr_return("No single arithmetic problem found. Try Top or Center.")
                 return
         else:
             output = u" ".join(text.split())[:160]
         _keyquest_ocr_reset()
+        if state.destination == "show":
+            renpy.show_screen("_keyquest_ocr_result", mode=state.mode, region=state.region, result=output)
+            renpy.restart_interaction()
+            return
         try:
             _keyquest_insert_text(output)
         except Exception as failure:
             renpy.log("Keyquest text input: " + repr(failure))
-            _keyquest_ocr_error("The game could not accept this scan as text.")
+            _keyquest_ocr_return("The game could not accept this scan as text.")
 
     def _keyquest_insert_text(text):
         import pygame
@@ -211,24 +245,50 @@ init python:
     def _keyquest_next_option(value, choices):
         return choices[(choices.index(value) + 1) % len(choices)]
 
-    def _keyquest_repeat_press(key):
-        renpy.store._keyquest_repeat_left -= 1
-        if _keyquest_repeat_left <= 0:
-            renpy.hide_screen("_keyquest_repeat_runner")
+    def _keyquest_start_repeat(sequence, loops, interval, region):
+        _keyquest_ocr_reset()
+        renpy.store._keyquest_repeat_job = (sequence, loops, interval, region, 0)
+        renpy.hide_screen("_keyquest_smart_input")
+        renpy.show_screen("_keyquest_repeat_runner")
+
+    def _keyquest_edit_repeat():
+        if _keyquest_repeat_job is None:
+            return
+        sequence, loops, interval, region, _ = _keyquest_repeat_job
+        _keyquest_ocr_reset()
+        renpy.show_screen("_keyquest_smart_input", initial_mode="repeat", initial_region=region,
+                          initial_repeat=(sequence, loops, interval))
+
+    def _keyquest_repeat_press():
+        if _keyquest_repeat_job is None:
+            return
+        sequence, loops, interval, region, index = _keyquest_repeat_job
+        key = sequence[index % len(sequence)]
+        index += 1
         _keyquest_press(key, " " if key == "SPACE" else key if len(key) == 1 else "")
+        if index >= len(sequence) * loops:
+            renpy.store._keyquest_repeat_job = None
+            renpy.hide_screen("_keyquest_repeat_runner")
+            renpy.restart_interaction()
+        else:
+            renpy.store._keyquest_repeat_job = (sequence, loops, interval, region, index)
 
-default _keyquest_repeat_left = 0
+    def _keyquest_sequence_label(sequence):
+        return u" · ".join({"SPACE": "Space", "RETURN": "Enter"}.get(key, key.upper()) for key in sequence)
 
-screen _keyquest_smart_input(initial_mode="text", initial_region="full", status=""):
+default _keyquest_repeat_job = None
+
+screen _keyquest_smart_input(initial_mode="text", initial_region="full", initial_destination="show", initial_repeat=((), 3, 0.15), status=""):
     zorder 993
     default mode = initial_mode
     default region = initial_region
-    default selected_key = "s"
-    default count = 10
-    default interval = 0.15
+    default destination = initial_destination
+    default sequence = initial_repeat[0]
+    default loops = initial_repeat[1]
+    default interval = initial_repeat[2]
     frame:
         align (0.5, 0.38)
-        at Transform(zoom=min(1.0, config.screen_width / 620.0, config.screen_height / 390.0))
+        at Transform(zoom=min(1.0, config.screen_width / 620.0, config.screen_height / 505.0))
         background Frame("keyquest_panel.png", 24, 24)
         padding (18, 16)
         xsize 610
@@ -240,32 +300,60 @@ screen _keyquest_smart_input(initial_mode="text", initial_region="full", status=
                 text "Smart Input" color "#eff8ff" size 28 yalign 0.5
             hbox:
                 spacing 6
-                for choice, caption in (("text", "Copy text"), ("math", "Solve math"), ("repeat", "Repeat key")):
+                for choice, caption in (("text", "Copy text"), ("math", "Solve math"), ("repeat", "Repeat keys")):
                     textbutton caption style "keyquest_deck_key" selected (mode == choice) action SetScreenVariable("mode", choice)
                 textbutton "Keyboard" style "keyquest_deck_key" action [Hide("_keyquest_smart_input"), Show("_keyquest_keyboard")]
+            if status and mode == initial_mode:
+                text status color "#fff0c8" size 19 substitute False
             if mode == "repeat":
+                text (_keyquest_sequence_label(sequence) if sequence else "Tap keys in the order you want them pressed.") color "#b9d3e8" size 19 xmaximum 565
                 for row in ("1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm"):
                     hbox:
                         spacing 4
                         for letter in row:
-                            textbutton letter.upper() style "keyquest_deck_key" xsize 45 selected (selected_key == letter) action SetScreenVariable("selected_key", letter)
+                            textbutton letter.upper() style "keyquest_deck_key" xsize 45 sensitive (len(sequence) < 12) action SetScreenVariable("sequence", sequence + (letter,))
                 hbox:
                     spacing 6
-                    textbutton "Space" style "keyquest_deck_key" selected (selected_key == "SPACE") action SetScreenVariable("selected_key", "SPACE")
-                    textbutton "Enter" style "keyquest_deck_key" selected (selected_key == "RETURN") action SetScreenVariable("selected_key", "RETURN")
-                    textbutton ("%d presses" % count) style "keyquest_deck_key" action SetScreenVariable("count", _keyquest_next_option(count, (5, 10, 25, 50)))
+                    for button, value in (("Space", "SPACE"), ("Enter", "RETURN")):
+                        textbutton button style "keyquest_deck_key" sensitive (len(sequence) < 12) action SetScreenVariable("sequence", sequence + (value,))
+                    textbutton "Undo" style "keyquest_deck_key" sensitive bool(sequence) action SetScreenVariable("sequence", sequence[:-1])
+                    textbutton "Clear" style "keyquest_deck_key" sensitive bool(sequence) action SetScreenVariable("sequence", ())
+                hbox:
+                    spacing 6
+                    textbutton ("Area: " + region.title()) style "keyquest_deck_key" action SetScreenVariable("region", _keyquest_next_option(region, ("full", "top", "center")))
+                    textbutton "Read keys" style "keyquest_deck_key" action Function(_keyquest_ocr_begin, "keys", region, "show", (sequence, loops, interval))
+                    textbutton ("%d loops" % loops) style "keyquest_deck_key" action SetScreenVariable("loops", _keyquest_next_option(loops, (1, 3, 5, 10, 25, 50)))
                     textbutton ("%.2f s" % interval) style "keyquest_deck_key" action SetScreenVariable("interval", _keyquest_next_option(interval, (0.08, 0.15, 0.30, 0.60)))
-                    textbutton "Start" style "keyquest_deck_accent" action [Function(_keyquest_ocr_reset), SetVariable("_keyquest_repeat_left", count), Hide("_keyquest_smart_input"), Show("_keyquest_repeat_runner", key=selected_key, interval=interval)]
+                    textbutton "Start" style "keyquest_deck_accent" sensitive bool(sequence) action Function(_keyquest_start_repeat, sequence, loops, interval, region)
             else:
-                $ hint = "Type English text into the active game field." if mode == "text" else "Type one answer for visible arithmetic (+, −, ×, ÷)."
-                text hint color "#b9d3e8" size 19
-                if status and mode == initial_mode:
-                    text status color "#fff0c8" size 19 substitute False
                 hbox:
                     spacing 6
                     for location, caption in (("full", "Full screen"), ("top", "Top"), ("center", "Center")):
                         textbutton caption style "keyquest_deck_key" selected (region == location) action SetScreenVariable("region", location)
-                    textbutton "Scan & type" style "keyquest_deck_accent" action Function(_keyquest_ocr_begin, mode, region)
+                hbox:
+                    spacing 6
+                    textbutton "Show result" style "keyquest_deck_key" selected (destination == "show") action SetScreenVariable("destination", "show")
+                    textbutton "Type in game" style "keyquest_deck_key" selected (destination == "type") action SetScreenVariable("destination", "type")
+                    textbutton ("Scan & show" if destination == "show" else "Scan & type") style "keyquest_deck_accent" action Function(_keyquest_ocr_begin, mode, region, destination)
+                if destination == "type":
+                    text "Open the game's text field before scanning." color "#b9d3e8" size 19
+
+screen _keyquest_ocr_result(mode, region, result):
+    zorder 995
+    frame:
+        align (0.5, 0.12)
+        at Transform(zoom=min(1.0, config.screen_width / 530.0, config.screen_height / 350.0))
+        xsize 520
+        background Frame("keyquest_panel.png", 24, 24)
+        padding (18, 16)
+        vbox:
+            spacing 8
+            text ("Answer" if mode == "math" else "Recognized text") color "#b9d3e8" size 22
+            text result.replace("{", "{{") substitute False color "#eff8ff" size (48 if mode == "math" else 24) xmaximum 480
+            hbox:
+                spacing 6
+                textbutton "Scan again" style "keyquest_deck_accent" action Function(_keyquest_ocr_begin, mode, region, "show")
+                textbutton "Close" style "keyquest_deck_key" action Hide("_keyquest_ocr_result")
 
 screen _keyquest_ocr_capture():
     timer 0.20 action Function(_keyquest_ocr_capture_frame)
@@ -282,7 +370,13 @@ screen _keyquest_ocr_wait():
             text "Reading screen…" color "#eff8ff" size 20 yalign 0.5
             textbutton "Cancel" style "keyquest_deck_key" action Function(_keyquest_ocr_reset)
 
-screen _keyquest_repeat_runner(key, interval):
+screen _keyquest_repeat_runner():
     zorder 995
-    textbutton "Stop repeat" style "keyquest_deck_key" align (0.98, 0.04) action Function(_keyquest_ocr_reset)
-    timer interval repeat True modal True action Function(_keyquest_repeat_press, key, _update_screens=False)
+    if _keyquest_repeat_job is not None:
+        $ interval = _keyquest_repeat_job[2]
+        hbox:
+            align (0.98, 0.04)
+            spacing 6
+            textbutton "Edit keys" style "keyquest_deck_key" action Function(_keyquest_edit_repeat)
+            textbutton "Stop repeat" style "keyquest_deck_key" action Function(_keyquest_ocr_reset)
+        timer interval repeat True modal True action Function(_keyquest_repeat_press, _update_screens=False)

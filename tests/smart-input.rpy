@@ -8,6 +8,11 @@ init 999 python:
             ("2**6", None), ("8//2", None), ("2/0", None), ("1+2\n5+7", None),
             ("4*500000000", None), ("print(1)", None)):
         assert _keyquest_math_answer(sample) == answer, (sample, _keyquest_math_answer(sample))
+    assert _keyquest_read_key_cue(u"Press S and I rapidly!") == ("s", "i")
+    assert _keyquest_read_key_cue(u"Keys: A → Enter, A") == ("a", "RETURN", "a")
+    assert _keyquest_read_key_cue(u"Press Space to continue") == ("SPACE",)
+    assert _keyquest_read_key_cue(u"Press S\nPress I") is None
+    assert _keyquest_read_key_cue(u"Press any key") is None
     phrase = u"Hello from Keyquest! " * 5 + u"café"
     _keyquest_insert_text(phrase)
     posted = [ev.text for ev in pygame.event.get() if ev.type == pygame.TEXTINPUT]
@@ -25,11 +30,35 @@ label start:
     show screen _keyquest_smart_input(initial_mode="math", status="Sample error.")
     $ renpy.pause(0.15, hard=True)
     hide screen _keyquest_smart_input
-    $ _keyquest_repeat_left = 3
-    show screen _keyquest_repeat_runner(key="s", interval=0.1)
+    python:
+        _keyquest_scan_state.started = _kq_time.time()
+        _keyquest_scan_state.mode = "math"
+        _keyquest_scan_state.destination = "show"
+        _keyquest_scan_state.response = (_keyquest_scan_state.request, "25 + 17 = ?", None)
+        _keyquest_ocr_poll()
+        assert not any(ev.type == pygame.TEXTINPUT for ev in pygame.event.get())
+    $ renpy.pause(0.15, hard=True)
+    $ assert renpy.get_screen("_keyquest_ocr_result").scope["result"] == "42"
+    hide screen _keyquest_ocr_result
+    python:
+        _keyquest_scan_state.started = _kq_time.time()
+        _keyquest_scan_state.mode = "keys"
+        _keyquest_scan_state.region = "top"
+        _keyquest_scan_state.repeat_settings = (("q",), 3, 0.15)
+        _keyquest_scan_state.response = (_keyquest_scan_state.request, "Press S and I rapidly!", None)
+        _keyquest_ocr_poll()
+        assert _keyquest_repeat_job is None
+    $ renpy.pause(0.15, hard=True)
+    $ assert renpy.get_screen("_keyquest_smart_input").scope["sequence"] == ("s", "i")
+    hide screen _keyquest_smart_input
+    $ observed_keys = []
+    show screen _keyquest_test_key_order
+    $ _keyquest_start_repeat(("s", "i", "s"), 2, 0.1, "full")
     $ renpy.pause(2.0, hard=True)
-    $ assert _keyquest_repeat_left == 0
+    $ assert _keyquest_repeat_job is None
+    $ assert observed_keys == ["s", "i", "s", "s", "i", "s"], observed_keys
     $ assert renpy.get_screen("_keyquest_repeat_runner") is None
+    hide screen _keyquest_test_key_order
     $ print("Keyquest Smart Input render and repeat timer tests passed.")
     show screen _keyquest_test_typing
     $ actual = renpy.input("Test in-game OCR text")
@@ -37,6 +66,18 @@ label start:
     $ print("Keyquest text reached the active game field.")
     $ renpy.quit()
 
+init python:
+    def _keyquest_test_type_result():
+        _keyquest_scan_state.started = _kq_time.time()
+        _keyquest_scan_state.mode = "text"
+        _keyquest_scan_state.destination = "type"
+        _keyquest_scan_state.response = (_keyquest_scan_state.request, u"Keyquest café 42", None)
+        _keyquest_ocr_poll()
+
 screen _keyquest_test_typing():
-    timer 0.25 action Function(_keyquest_insert_text, u"Keyquest café 42", _update_screens=False)
+    timer 0.25 action Function(_keyquest_test_type_result, _update_screens=False)
     timer 0.75 action Function(_keyquest_press, "RETURN", _update_screens=False)
+
+screen _keyquest_test_key_order():
+    key "K_s" action Function(observed_keys.append, "s", _update_screens=False)
+    key "K_i" action Function(observed_keys.append, "i", _update_screens=False)
