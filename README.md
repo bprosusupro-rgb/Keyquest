@@ -48,7 +48,7 @@ Enable **Include Smart Input** when building or updating the APK. In the game, o
 Open **Keyboard → OCR → Minigame helpers**. Each helper remembers its own board corners. Mark the upper-left and lower-right of the entire game board and move the floating controls clear of it.
 
 - **Color memory** supports the red, blue, green and yellow grid. Select **Record flashes** before the first flash, while all four pads are idle. When the game asks for the sequence, select **Finish recording**. Check or edit the sequence, then select **Play sequence**.
-- **Picture tiles** supports a 3 × 3 sliding picture with one dark empty slot and an intended blank in the bottom-right. Select **Scan tiles** to match picture edges. **Play one move** and **Play all moves** click the planned tiles and verify the board before advancing.
+- **Picture tiles** supports 3 × 3 and 4 × 4 sliding pictures with one dark empty slot and a goal blank in the bottom-right. Select the grid size before setting the board corners. Each size saves its own calibration. Select **Scan tiles** to match picture edges. On a 4 × 4 board, review the proposed picture, tap two tiles to swap them if needed, and select **Plan moves**. **Play one move** and **Play all moves** click the planned tiles and verify the board before advancing.
 
 I used the Quest screenshots to check color positions and picture reconstruction. A timed color round and game input on the headset still need verification.
 
