@@ -147,6 +147,18 @@ label start:
     call screen _keyquest_test_custom_prompt
     $ assert _return == exact_prompt, _return
     $ print("Keyquest read a custom typing screen directly.")
+    $ observed_keys = []
+    show screen _keyquest_test_key_order
+    show screen _keyquest_test_race_cue
+    $ _keyquest_watch_start("keys", "full", ((), 1, 0.1))
+    $ renpy.pause(0.75, hard=True)
+    $ assert _keyquest_scan_state.watch_source == "game"
+    $ assert observed_keys[:4] == ["s", "m", "s", "m"], observed_keys
+    hide screen _keyquest_test_race_cue
+    $ renpy.pause(0.25, hard=True)
+    $ assert _keyquest_scan_state.watch_value is None
+    $ _keyquest_ocr_reset()
+    $ print("Keyquest sent both live race keys and stopped when the prompt disappeared.")
     $ renpy.quit()
 
 init python:
@@ -197,3 +209,6 @@ init python:
 screen _keyquest_test_key_order():
     key "K_s" action Function(observed_keys.append, "s", _update_screens=False)
     key "K_m" action Function(observed_keys.append, "m", _update_screens=False)
+
+screen _keyquest_test_race_cue():
+    text "Press {b}S{/b} and m rapidly!"

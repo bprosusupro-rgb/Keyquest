@@ -16,7 +16,7 @@ init python:
         lit = None
         color_event = None
         color_order = ()
-        idle_samples = 0
+        color_points = ()
         tile_result = None
         tile_busy = False
         tile_generation = 0
@@ -143,32 +143,82 @@ init python:
     def _keyquest_cell_samples(frame, board, side, index, locations):
         return tuple(_keyquest_sample(frame, _keyquest_board_point(board, side, index, u, v)) for u, v in locations)
 
-    def _keyquest_color_sample(frame, board):
+    def _keyquest_color_sample(frame, board, points=None):
         result = []
         locations = ((0.5, 0.5), (0.35, 0.35), (0.65, 0.35), (0.35, 0.65), (0.65, 0.65))
         for index in range(4):
-            points = _keyquest_cell_samples(frame, board, 2, index, locations)
-            result.append(tuple(sorted(point[c] for point in points)[2] for c in range(3)))
+            if points:
+                x, y = points[index]
+                pixels = [_keyquest_sample(frame, (x + dx, y + dy)) for dx, dy in
+                          ((0, 0), (-0.01, 0), (0.01, 0), (0, -0.01), (0, 0.01))]
+            else:
+                pixels = _keyquest_cell_samples(frame, board, 2, index, locations)
+            result.append(tuple(sorted(pixel[c] for pixel in pixels)[2] for c in range(3)))
         return tuple(result)
 
+    def _keyquest_color_index(pixel, minimum):
+        red, green, blue = pixel
+        scores = (red - max(green, blue), blue - max(red, green),
+                  green - max(red, blue), min(red, green) - blue)
+        strongest = max(scores)
+        return scores.index(strongest) if strongest >= minimum else None
+
     def _keyquest_color_layout(colors):
-        order = []
-        for red, green, blue in colors:
-            scores = (red - max(green, blue), blue - max(red, green),
-                      green - max(red, blue), min(red, green) - blue)
-            strongest = max(scores)
-            if strongest < 40:
-                return ()
-            order.append(scores.index(strongest))
-        return tuple(order) if len(set(order)) == 4 else ()
+        order = tuple(_keyquest_color_index(pixel, 40) for pixel in colors)
+        return order if None not in order and len(set(order)) == 4 else ()
+
+    def _keyquest_color_centers(frame, board):
+        if _keyquest_color_layout(_keyquest_color_sample(frame, board)):
+            return tuple(_keyquest_board_point(board, 2, index) for index in range(4))
+
+        columns, rows = 64, 40
+        cells = {}
+        for y in range(rows):
+            for x in range(columns):
+                point = ((x + 0.5) / columns, (y + 0.5) / rows)
+                left, top, right, bottom = board
+                if not (left <= point[0] <= right and top <= point[1] <= bottom):
+                    continue
+                color = _keyquest_color_index(_keyquest_sample(frame, point), 112)
+                if color is not None:
+                    cells[x, y] = color
+        blocks = {}
+        while cells:
+            start, color = cells.popitem()
+            component = [start]
+            for x, y in component:
+                for neighbor in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                    if cells.get(neighbor) == color:
+                        del cells[neighbor]
+                        component.append(neighbor)
+            if len(component) < 12:
+                continue
+            xs, ys = zip(*component)
+            left, right = min(xs), max(xs)
+            top, bottom = min(ys), max(ys)
+            width, height = right - left + 1, bottom - top + 1
+            if min(width, height) < 3 or len(component) < width * height * 0.8:
+                continue
+            if color not in blocks or len(component) > blocks[color][0]:
+                blocks[color] = (len(component), ((left + right + 1) / (2.0 * columns),
+                                                   (top + bottom + 1) / (2.0 * rows)))
+        if len(blocks) != 4 or max(block[0] for block in blocks.values()) > 2.4 * min(block[0] for block in blocks.values()):
+            return ()
+        points = sorted((block[1] for block in blocks.values()), key=lambda point: point[1])
+        top, bottom = sorted(points[:2]), sorted(points[2:])
+        if (abs(top[0][1] - top[1][1]) > 0.06 or abs(bottom[0][1] - bottom[1][1]) > 0.06
+                or any(abs(a[0] - b[0]) > 0.06 or b[1] - a[1] < 0.08 for a, b in zip(top, bottom))
+                or min(top[1][0] - top[0][0], bottom[1][0] - bottom[0][0]) < 0.07):
+            return ()
+        return tuple(top + bottom)
 
     def _keyquest_flash(baseline, colors, current):
         changes = [sum(abs(a - b) for a, b in zip(old, new)) for old, new in zip(baseline, colors)]
         order = sorted(range(4), key=lambda index: changes[index], reverse=True)
         largest, second = order[:2]
-        if changes[largest] < 32:
+        if changes[largest] < 20:
             return None
-        if changes[largest] >= 52 and changes[largest] - changes[second] >= 24:
+        if changes[largest] >= 30 and changes[largest] - changes[second] >= 18:
             return largest
         return current
 
@@ -234,7 +284,7 @@ init python:
             state.sequence = ()
             state.baseline = None
             state.color_order = ()
-            state.idle_samples = 0
+            state.color_points = ()
             state.lit = None
         if job == "color-play":
             state.pending = tuple(state.sequence)
@@ -244,7 +294,8 @@ init python:
     def _keyquest_puzzle_click(index, side):
         import pygame
         board = _keyquest_minigame.tile_bounds if side in (3, 4) else None
-        x, y = _keyquest_board_point(board or _keyquest_board(), side, index)
+        points = _keyquest_minigame.color_points if side == 2 else ()
+        x, y = points[index] if points else _keyquest_board_point(board or _keyquest_board(), side, index)
         point = tuple(map(int, renpy.display.draw.untranslate_point(int(x * config.screen_width), int(y * config.screen_height))))
         pygame.event.post(pygame.event.Event(pygame.MOUSEMOTION,
                          pos=point, rel=(0, 0), buttons=(0, 0, 0), touch=False, which=0))
@@ -801,22 +852,29 @@ init python:
         try:
             if job == "watch":
                 if state.color_event == "ready":
-                    _keyquest_show_minigame("%d flashes recorded. Check the sequence, then press Play." % len(state.sequence))
+                    message = ("%d flashes recorded. Check the sequence, then press Play." % len(state.sequence)
+                               if state.sequence else "No flashes captured. Start recording before the next pattern.")
+                    _keyquest_show_minigame(message)
                     return
-                colors = _keyquest_color_sample(_keyquest_frame(), _keyquest_board())
+                frame = _keyquest_frame()
+                board = _keyquest_board()
                 if state.baseline is None:
+                    state.color_points = _keyquest_color_centers(frame, board)
+                    if not state.color_points:
+                        state.next_tap = now + 0.25
+                        return
+                    colors = _keyquest_color_sample(frame, board, state.color_points)
                     order = _keyquest_color_layout(colors)
                     if order:
                         state.baseline = colors
                         state.color_order = order
+                        _keyquest_trace("color_pads_found", centers=state.color_points)
                     return
+                colors = _keyquest_color_sample(frame, board, state.color_points)
                 hit = _keyquest_flash(state.baseline, colors, state.lit)
                 if hit is None:
-                    state.idle_samples += 1
-                    if state.idle_samples >= 2:
-                        state.lit = None
+                    state.lit = None
                 else:
-                    state.idle_samples = 0
                     if hit != state.lit:
                         state.lit = hit
                         _keyquest_append_color(state.color_order[hit])
@@ -830,7 +888,10 @@ init python:
                     _keyquest_show_minigame("Sequence finished. Record again for the next round.")
                     return
                 if state.next_tap == 0:
-                    state.color_order = _keyquest_color_layout(_keyquest_color_sample(_keyquest_frame(), _keyquest_board()))
+                    frame, board = _keyquest_frame(), _keyquest_board()
+                    state.color_points = _keyquest_color_centers(frame, board)
+                    state.color_order = (_keyquest_color_layout(_keyquest_color_sample(frame, board, state.color_points))
+                                         if state.color_points else ())
                     if not state.color_order:
                         _keyquest_show_minigame("Could not find all four colors. Check the corners and wait for the board.")
                         return

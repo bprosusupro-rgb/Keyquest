@@ -26,6 +26,7 @@ init python:
         watch_confirmed = 0.0
         watch_misses = 0
         next_scan = 0.0
+        watch_source = None
 
         def __getstate__(self):
             # Android handles and the live OCR/log session belong to this process.
@@ -179,6 +180,34 @@ init python:
             return text
         return None
 
+    def _keyquest_display_tree(root):
+        stack = [root]
+        seen = set()
+        while stack:
+            item = stack.pop()
+            if item is None or id(item) in seen:
+                continue
+            seen.add(id(item))
+            yield item
+            stack.extend(item.visit())
+
+    def _keyquest_drawn_text(item):
+        parts = getattr(item, "text", None)
+        if parts and all(isinstance(part, (type(u""), str)) for part in parts):
+            return renpy.filter_text_tags(u"".join(parts), allow=[])
+        return u""
+
+    def _keyquest_live_key_text():
+        text_type = renpy.text.text.Text
+        lines = []
+        for root in renpy.game.context().scene_lists.get_all_displayables(current=True):
+            for item in _keyquest_display_tree(root):
+                if isinstance(item, text_type) and not isinstance(item, renpy.display.behavior.Input):
+                    text = _keyquest_drawn_text(item)
+                    if _keyquest_read_key_cue(text):
+                        lines.append(text)
+        return u"\n".join(lines)
+
     def _keyquest_visible_prompt():
         input_type = renpy.display.behavior.Input
         text_type = renpy.text.text.Text
@@ -186,23 +215,13 @@ init python:
         inputs, choices = {}, set()
         for root in renpy.game.context().scene_lists.get_all_displayables(current=True):
             scope = getattr(root, "scope", None)
-            stack = [root]
-            seen = set()
             fields, texts = {}, []
-            while stack:
-                item = stack.pop()
-                if item is None or id(item) in seen:
-                    continue
-                seen.add(id(item))
+            for item in _keyquest_display_tree(root):
                 if isinstance(item, input_type):
                     if item.editable and not getattr(item, "mask", None):
                         fields[id(item)] = item
                 elif isinstance(item, text_type):
-                    parts = getattr(item, "text", None)
-                    if parts and all(isinstance(part, (type(u""), str)) for part in parts):
-                        texts.append(u"".join(parts))
-                else:
-                    stack.extend(item.visit())
+                    texts.append(_keyquest_drawn_text(item))
             if not fields:
                 continue
             inputs.update(fields)
@@ -273,16 +292,25 @@ init python:
                           initial_repeat=(sequence if keys is None else keys, loops, interval), status=message)
         renpy.restart_interaction()
 
-    def _keyquest_submit_local(mode, region, frame=None):
-        from jnius import autoclass
-
+    def _keyquest_game_has_focus():
+        import pygame
         state = _keyquest_scan_state
+        if renpy.android and state.activity is None:
+            try:
+                from jnius import autoclass
+                state.activity = autoclass("org.renpy.android.PythonSDLActivity").mActivity
+            except Exception:
+                return pygame.key.get_focused()
+        return state.activity.hasWindowFocus() if state.activity is not None else pygame.key.get_focused()
+
+    def _keyquest_submit_local(mode, region, frame=None):
+        state = _keyquest_scan_state
+        if not _keyquest_game_has_focus() or _keyquest_vision.busy:
+            return False
         if state.activity is None:
-            state.activity = autoclass("org.renpy.android.PythonSDLActivity").mActivity
-        if not state.activity.hasWindowFocus() or _keyquest_vision.busy:
             return False
         detailed = region in ("race", "bottom", "typing")
-        limit = 1440 if region == "race" else (1920 if mode == "math" else (960 if state.watch and not detailed else 1440))
+        limit = 1440 if region == "race" else (1920 if mode == "math" else (960 if state.watch and mode != "keys" and not detailed else 1440))
         size = _keyquest_capture_size(limit, detailed or mode == "math")
         if frame is None:
             frame = renpy.screenshot_to_bytes(size)
@@ -492,7 +520,7 @@ init python:
         state.region = region
         state.destination = "show"
         state.repeat_settings = repeat_settings
-        if not renpy.android or not renpy.loadable("keyquest_vision.zip") or _keyquest_vision.unavailable:
+        if mode != "keys" and (not renpy.android or not renpy.loadable("keyquest_vision.zip") or _keyquest_vision.unavailable):
             _keyquest_ocr_return("Live OCR is unavailable here. One-shot scanning is still available on Android.")
             return
         state.watch = mode
@@ -501,6 +529,7 @@ init python:
         state.watch_confirmed = 0.0
         state.watch_misses = 0
         state.watch_index = 0
+        state.watch_source = None
         state.next_scan = state.started + 0.25
         renpy.hide_screen("_keyquest_smart_input")
         renpy.show_screen("_keyquest_live_ocr")
@@ -543,6 +572,20 @@ init python:
         if now - state.started > 60:
             _keyquest_ocr_return("Live OCR ended after one minute.")
             return
+        if state.watch == "keys":
+            text = _keyquest_live_key_text()
+            if _keyquest_read_key_cue(text):
+                if state.watch_source != "game":
+                    _keyquest_trace("race_prompt_source", source="game")
+                    state.watch_source = "game"
+                    state.request += 1
+                _keyquest_watch_apply(text, now)
+                return
+            if state.watch_source == "game":
+                state.watch_source = None
+                state.next_scan = now
+                state.watch_confirmed = 0.0
+                _keyquest_watch_apply(u"", now)
         response = _keyquest_vision.response
         if response is not None and response[0] == state.request:
             _keyquest_vision.response = None
@@ -552,10 +595,14 @@ init python:
                 renpy.log("Keyquest live OCR: " + error)
                 _keyquest_ocr_return("Live OCR could not start on this game. Try a one-shot scan.")
                 return
+            if state.watch == "keys" and state.watch_source is None:
+                state.watch_source = "ocr"
+                _keyquest_trace("race_prompt_source", source="ocr")
             _keyquest_watch_apply(text, now)
         if state.watch_value is not None and now - state.watch_confirmed > _keyquest_watch_expiry():
             _keyquest_watch_apply(u"", now)
-        if now >= state.next_scan and not _keyquest_vision.busy:
+        if (now >= state.next_scan and renpy.android and not _keyquest_vision.busy
+                and not _keyquest_vision.unavailable and renpy.loadable("keyquest_vision.zip")):
             state.next_scan = now + (0.34 if state.region == "race" else 0.55)
             try:
                 _keyquest_submit_local(state.watch, state.region)
@@ -570,8 +617,7 @@ init python:
     def _keyquest_watch_press():
         state = _keyquest_scan_state
         if (_keyquest_panel_grabbed() or state.watch_paused or state.watch != "keys"
-                or not state.watch_value or not state.activity
-                or not state.activity.hasWindowFocus() or _kq_time.time() - state.watch_confirmed > _keyquest_watch_expiry()):
+                or not state.watch_value or not _keyquest_game_has_focus() or _kq_time.time() - state.watch_confirmed > _keyquest_watch_expiry()):
             return
         key = state.watch_value[state.watch_index]
         state.watch_index = (state.watch_index + 1) % len(state.watch_value)

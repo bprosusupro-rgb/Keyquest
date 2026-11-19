@@ -26,6 +26,18 @@ init 999 python:
         assert max(abs(a - b) for a, b in zip(bounds, (0.125, 0.22, 0.875, 532.0 / 600))) < 0.004
         tiles, _, signatures = _keyquest_tile_scan(sample, bounds, 4)
         assert tiles[0] == 0 and len(signatures[0]) == 25
+        sample.fill((178, 143, 104))
+        positions = ((288, 90), (408, 90), (288, 225), (408, 225))
+        for position, color in zip(positions, ((218, 0, 0), (0, 0, 185), (0, 218, 0), (210, 196, 0))):
+            sample.fill(color, position + (96, 111))
+        marked = (0.17, 0.09, 0.85, 0.85)
+        assert not _keyquest_color_layout(_keyquest_color_sample(sample, marked))
+        pads = _keyquest_color_centers(sample, marked)
+        assert len(pads) == 4
+        assert _keyquest_color_layout(_keyquest_color_sample(sample, marked, pads)) == (0, 1, 2, 3)
+        idle = ((218, 0, 0), (0, 0, 185), (0, 218, 0), (210, 196, 0))
+        dim_flash = ((250, 4, 3),) + idle[1:]
+        assert _keyquest_flash(idle, dim_flash, None) == 0
 
     assert _keyquest_color_layout(((0, 0, 194), (214, 0, 0), (215, 207, 0), (1, 207, 0))) == (1, 0, 3, 2)
     dark_signatures = {0: ((0, 0, 0),) * 9, 1: ((19, 21, 25),) * 9, 2: ((220, 170, 80),) * 9}
