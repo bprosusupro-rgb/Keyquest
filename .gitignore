@@ -1,6 +1,4 @@
-.godot/
-__pycache__/
 *.apk
 *.idsig
 *.keystore
-*.jks
+*.p12
