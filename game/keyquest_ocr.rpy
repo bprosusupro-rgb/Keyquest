@@ -56,19 +56,24 @@ init python:
         return result
 
     def _keyquest_math_answer(text, require_prompt=False):
-        replacements = ((u"×", "*"), (u"÷", "/"), (u"−", "-"), (u"–", "-"))
-        for before, after in replacements:
+        for before, after in ((u"×", "*"), (u"·", "*"), (u"⋅", "*"), (u"✕", "*"),
+                              (u"÷", "/"), (u"−", "-"), (u"–", "-"), (u"＝", "="), (u"？", "?")):
             text = text.replace(before, after)
-        candidates = set()
+        text = _kq_re.sub(r"(?<=[\d.)])\s*(?:x|mal)\s*(?=[+\-\d.(])", "*", text, flags=_kq_re.I)
+        text = _kq_re.sub(r"([+*/=])[^\S\n]*\n[ \t]*(?=[+\-\d.(?])", r"\1 ", text)
+        marked, unmarked = set(), set()
         for line in text.splitlines():
-            line = line.strip()
-            if require_prompt and not line.endswith(("?", "=")):
-                continue
-            line = _kq_re.sub(r"(?<=[\d.)])\s*[xX]\s*(?=[+\-\d.(])", "*", line)
-            expression = _kq_re.sub(r"\s*(?:=\s*\??|\?)\s*$", "", line).strip()
+            line = _kq_re.sub(r"^\s*(?:solve|calculate|what\s+is|rechne|berechne)(?:\s*:\s*|\s+)", "", line, flags=_kq_re.I).strip()
+            ending = _kq_re.search(r"\s*(?:=\s*\??|\?)\s*$", line)
+            expression = line[:ending.start()].strip() if ending else line
             if (len(expression) <= 64 and _kq_re.match(r"^[0-9.()+*/ \t-]+\Z", expression)
                     and _kq_re.search(r"[\d.)]\s*[+*/-]", expression)):
-                candidates.add(expression)
+                expression = _kq_re.sub(r"\s*([()+*/-])\s*", r"\1", expression)
+                if ending:
+                    marked.add(expression)
+                elif not require_prompt or _kq_re.search(r"\d\*\d", expression):
+                    unmarked.add(expression)
+        candidates = marked or unmarked
         if len(candidates) != 1:
             return None
         try:
@@ -112,12 +117,18 @@ init python:
     def _keyquest_read_key_cue(text):
         cues = set()
         for line in text.splitlines():
-            match = _kq_re.match(r"^\s*(?:(?:press|tap|mash|alternate(?:\s+between)?)\b|keys?\s*:)\s*(.+)$", line, _kq_re.I)
+            match = _kq_re.match(r"^\s*[|!:.]*\s*(?:(?:press|tap|mash|alternate(?:\s+between)?)\b|keys?\s*:)\s*(.+)$", line, _kq_re.I)
             if not match:
                 continue
             cue = _kq_re.split(r"\s+(?:rapidly|quickly|repeatedly|fast|now|to)\b", match.group(1), 1, flags=_kq_re.I)[0]
             cue = cue.strip(" .!:").lower().replace(u"→", ",")
             cue = cue.replace("[", "").replace("]", "").replace('"', "").replace(u"“", "").replace(u"”", "")
+            if _kq_re.search(r"(?:\band|\bthen|[,/+&])$", cue):
+                continue
+            # OCR can join "and m" or split a lower-case m into "rn".
+            cue = _kq_re.sub(r"^([a-z0-9])\s*and\s*([a-z0-9]|rn)$", r"\1 and \2", cue)
+            if _kq_re.match(r"^[a-z0-9] and rn$", cue):
+                cue = cue[:-2] + "m"
             tokens = _kq_re.split(r"\s*(?:[,/+&]|\band\b|\bthen\b)\s*|\s+", cue)
             tokens = tuple({"space": "SPACE", "enter": "RETURN", "|": "i"}.get(token, token) for token in tokens if token)
             if 0 < len(tokens) <= 12 and all(
@@ -177,13 +188,21 @@ init python:
         if not state.activity.hasWindowFocus() or _keyquest_vision.busy:
             return False
         detailed = region in ("race", "bottom", "typing")
-        size = _keyquest_capture_size(960 if state.watch and not detailed else 1440, detailed)
+        limit = 1440 if region == "race" else (1920 if mode == "math" else (960 if state.watch and not detailed else 1440))
+        size = _keyquest_capture_size(limit, detailed or mode == "math")
         if frame is None:
             frame = renpy.screenshot_to_bytes(size)
         if not frame:
             return False
+        validate = None
+        if mode == "keys" and region == "race":
+            def validate(text):
+                keys = _keyquest_read_key_cue(text)
+                return keys and (len(keys) > 1 or _kq_re.search(r"\b(?:rapidly|quickly|repeatedly|fast)\b", text, _kq_re.I))
+        if mode == "math":
+            validate = lambda text: _keyquest_math_answer(text, region == "bottom") is not None
         return _keyquest_vision.start(state.request, frame, region, mode,
-                                      state.activity.getCodeCacheDir().getAbsolutePath())
+                                      state.activity.getCodeCacheDir().getAbsolutePath(), validate)
 
     def _keyquest_capture_size(maximum, allow_upscale=False):
         width, height = config.screen_width, config.screen_height
@@ -197,7 +216,7 @@ init python:
         renpy.hide_screen("_keyquest_ocr_capture")
         region = state.pass_region or state.region
         if state.frame is None:
-            large_text_scan = state.mode == "text" and state.region in ("full", "typing")
+            large_text_scan = state.mode == "math" or (state.mode == "text" and state.region in ("full", "typing"))
             detailed = large_text_scan or region in ("race", "bottom")
             try:
                 state.frame = renpy.screenshot_to_bytes(_keyquest_capture_size(1920 if large_text_scan else 1440, detailed))
@@ -312,10 +331,16 @@ init python:
         _keyquest_trace("ocr_result", mode=state.mode, region=state.pass_region or state.region,
                         received=bool(text), failed=bool(error))
         prompt = _keyquest_read_typing_prompt(text) if state.mode == "text" and text and not error else None
-        if (state.mode == "text" and state.frame is not None and state.first_text is None
-                and state.region in ("typing", "full") and prompt is None):
+        answer = (_keyquest_math_answer(text, (state.pass_region or state.region) == "bottom")
+                  if state.mode == "math" and text and not error else None)
+        retry_region = None
+        if state.mode == "text" and prompt is None and state.region in ("typing", "full"):
+            retry_region = "typing" if state.region == "full" else "full"
+        if state.mode == "math" and answer is None and state.region == "full":
+            retry_region = "bottom"
+        if retry_region and state.frame is not None and state.first_text is None:
             state.first_text = text if text and not error else u""
-            state.pass_region = "typing" if state.region == "full" else "full"
+            state.pass_region = retry_region
             state.request += 1
             state.response = None
             state.bridge = None
@@ -335,7 +360,7 @@ init python:
                 _keyquest_ocr_return("Check the detected keys, then press Start.", keys)
             return
         if state.mode == "math":
-            output = _keyquest_math_answer(text, state.region == "bottom")
+            output = answer
             if output is None:
                 _keyquest_ocr_return("No single arithmetic problem found. Choose the area that contains it.")
                 return

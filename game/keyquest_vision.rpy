@@ -58,7 +58,7 @@ init python:
                 self.delete(self.engine)
                 raise RuntimeError("Could not initialize OCR model")
 
-        def recognize(self, frame, region, mode):
+        def recognize(self, frame, region, mode, validate=None):
             image = self.read_png(frame, len(frame))
             if not image:
                 raise ValueError("Could not decode game frame")
@@ -80,33 +80,35 @@ init python:
                         raise ValueError("Could not crop game frame")
                 source = cropped or image
                 race = region == "race" and mode == "keys"
-                if race:
-                    filtered = self.race_text_mask(source)
                 if digits:
                     self.set_variable(self.engine, b"tessedit_char_whitelist", b"0123456789")
                     if mode != "digits":
                         filtered = self.tile_label_mask(source)
-                if race or mode == "digits-light":
-                    segments = (7,)
+                if race:
+                    passes = ((7, 100), (7, 145), (7, None))
                 elif digits:
-                    segments = (8,)
+                    passes = ((7 if mode == "digits-light" else 8, None),)
+                elif mode == "math" and region == "bottom":
+                    passes = ((11, None), (7, None))
                 elif mode != "text":
-                    segments = (11,)
-                elif region == "typing":
-                    segments = (6, 11)
+                    passes = ((11, None),)
                 else:
-                    segments = (3, 11)
-                for segmentation in segments:
+                    passes = ((6 if region == "typing" else 3, None), (11, None))
+                for segmentation, threshold in passes:
+                    if threshold is not None:
+                        if filtered:
+                            self.release_image(self.ctypes.byref(self.ctypes.c_void_p(filtered)))
+                        filtered = self.race_text_mask(source, threshold)
                     self.mode(self.engine, segmentation)
-                    self.set_image(self.engine, filtered or source)
+                    self.set_image(self.engine, (filtered if digits or threshold is not None else None) or source)
                     text = self.text(self.engine)
                     if text:
                         try:
-                            result = self.ctypes.string_at(text).decode("utf-8", "replace").strip()
-                            if result:
-                                return result[:4096]
+                            result = self.ctypes.string_at(text).decode("utf-8", "replace").strip()[:4096]
                         finally:
                             self.release_text(text)
+                        if result and (validate is None or validate(result)):
+                            return result
                 return u""
             finally:
                 self.clear(self.engine)
@@ -132,7 +134,7 @@ init python:
                     if pix:
                         self.release_image(self.ctypes.byref(self.ctypes.c_void_p(pix)))
 
-        def race_text_mask(self, image):
+        def race_text_mask(self, image, threshold):
             rgb = self.rgb(image)
             if not rgb:
                 return None
@@ -140,7 +142,7 @@ init python:
             try:
                 # Keep the dark letter outlines and suppress the saturated track and white stripes.
                 gray = self.brightness(rgb, 2)  # L_CHOOSE_MAX
-                return self.threshold(gray, 100) if gray else None
+                return self.threshold(gray, threshold) if gray else None
             finally:
                 for pix in (gray, rgb):
                     if pix:
@@ -180,7 +182,7 @@ init python:
             self.libraries = tuple(ctypes.CDLL(os.path.join(target, name), mode=ctypes.RTLD_GLOBAL) for name in ordered)
             self.engine = _KeyquestVisionEngine(self.libraries[3], self.libraries[2], target)
 
-        def start(self, request, frame, region, mode, root):
+        def start(self, request, frame, region, mode, root, validate=None):
             import threading
 
             if self.busy:
@@ -192,7 +194,7 @@ init python:
                 try:
                     if self.engine is None:
                         self.prepare(root)
-                    text = self.engine.recognize(frame, region, mode)
+                    text = self.engine.recognize(frame, region, mode, validate)
                     self.response = (request, text, None)
                 except Exception as error:
                     self.unavailable = True

@@ -10,6 +10,14 @@ init 999 python:
         assert _keyquest_math_answer(sample) == answer, (sample, _keyquest_math_answer(sample))
     assert _keyquest_math_answer("3.X-5?", True) == "-15"
     assert _keyquest_math_answer("3.X-57", True) is None
+    assert _keyquest_math_answer(u"Berechne:7 mal 8＝？", True) == "56"
+    assert _keyquest_math_answer(u"7 x\n8 = ?", True) == "56"
+    assert _keyquest_math_answer(u"7 X 8", True) == "56"
+    assert _keyquest_math_answer(u"21 - 6\n7 · 8 = ?") == "56"
+    assert _keyquest_math_answer(u"3 4 + 5 = ?") is None
+    assert _keyquest_read_key_cue(u"Press S and m rapidly!") == ("s", "m")
+    assert _keyquest_read_key_cue(u"| Press S andrn rapidly!") == ("s", "m")
+    assert _keyquest_read_key_cue(u"Press S and rapidly!") is None
     assert _keyquest_read_key_cue(u"Press S and I rapidly!") == ("s", "i")
     assert _keyquest_read_key_cue(u"Press S and | rapidly!") == ("s", "i")
     assert _keyquest_read_key_cue(u"Alternate between [S] and [I] rapidly!") == ("s", "i")
@@ -61,7 +69,7 @@ label start:
         _keyquest_scan_state.started = _kq_time.time()
         _keyquest_scan_state.mode = "math"
         _keyquest_scan_state.destination = "show"
-        _keyquest_scan_state.response = (_keyquest_scan_state.request, "25 + 17 = ?", None)
+        _keyquest_scan_state.response = (_keyquest_scan_state.request, "6 x 7 = ?", None)
         _keyquest_ocr_poll()
         assert not any(ev.type == pygame.TEXTINPUT for ev in pygame.event.get())
     $ renpy.pause(0.15, hard=True)
@@ -80,10 +88,10 @@ label start:
     hide screen _keyquest_smart_input
     $ observed_keys = []
     show screen _keyquest_test_key_order
-    $ _keyquest_start_repeat(("s", "i", "s"), 2, 0.1, "full")
+    $ _keyquest_start_repeat(("s", "m", "s"), 2, 0.1, "full")
     $ renpy.pause(2.0, hard=True)
     $ assert _keyquest_repeat_job is None
-    $ assert observed_keys == ["s", "i", "s", "s", "i", "s"], observed_keys
+    $ assert observed_keys == ["s", "m", "s", "s", "m", "s"], observed_keys
     $ assert renpy.get_screen("_keyquest_repeat_runner") is None
     hide screen _keyquest_test_key_order
     python:
@@ -157,4 +165,4 @@ screen _keyquest_test_typing():
 
 screen _keyquest_test_key_order():
     key "K_s" action Function(observed_keys.append, "s", _update_screens=False)
-    key "K_i" action Function(observed_keys.append, "i", _update_screens=False)
+    key "K_m" action Function(observed_keys.append, "m", _update_screens=False)
