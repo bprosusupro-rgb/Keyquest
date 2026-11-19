@@ -5,10 +5,10 @@ init python:
         import pygame
         key = getattr(pygame, "K_" + name)
         mods = pygame.KMOD_SHIFT if text and text.isupper() else 0
-        pygame.event.post(pygame.event.Event(
-            pygame.KEYDOWN, key=key, mod=mods, unicode=text, repeat=False))
-        pygame.event.post(pygame.event.Event(
-            pygame.KEYUP, key=key, mod=mods, unicode=""))
+        # Ren'Py's keymap reads repeat on both press and release.
+        for kind, characters in ((pygame.KEYDOWN, text), (pygame.KEYUP, "")):
+            pygame.event.post(pygame.event.Event(
+                kind, key=key, mod=mods, unicode=characters, repeat=False))
 
     def _keyquest_dragged(drags, drop):
         if drags:
