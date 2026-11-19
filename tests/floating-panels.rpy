@@ -59,6 +59,17 @@ label start:
     $ renpy.pause(0.12, hard=True)
     $ panel = _kq_panel("_keyquest_smart_input", "ocr-setup")
     $ assert (panel.x, panel.y) == stored
+    python:
+        # Simulate a previous screen instance still holding the pointer.
+        guard = _KeyquestDragGuard()
+        renpy.display.focus.set_grab(panel)
+        guard.event(pygame.event.Event(pygame.MOUSEBUTTONUP, button=1), 0, 0, 0)
+        assert _keyquest_panel_grabbed()
+        guard.event(pygame.event.Event(pygame.MOUSEMOTION), 0, 0, 0)
+        assert not _keyquest_panel_grabbed()
+        renpy.display.focus.set_grab(panel)
+        guard.event(pygame.event.Event(pygame.ACTIVEEVENT, gain=0, state=1), 0, 0, 0)
+        assert not _keyquest_panel_grabbed()
     $ _kq_mouse(None, panel.x + 150, panel.y + 77)
     $ renpy.pause(0.12, hard=True)
     $ _kq_mouse(pygame.MOUSEBUTTONDOWN, panel.x + 150, panel.y + 77)
@@ -119,7 +130,7 @@ label start:
     $ _keyquest_stop_task()
     $ _keyquest_reset_panels()
     $ assert not persistent.keyquest_panel_positions
-    $ print("Keyquest floating panel drag, reopen, and launcher checks passed.")
+    $ print("Keyquest floating panel drag, release recovery, and launcher checks passed.")
     $ renpy.quit()
 
 screen _kq_test_drag_stroke(x, y, live=False):

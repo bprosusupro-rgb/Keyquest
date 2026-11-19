@@ -35,6 +35,54 @@ init python:
         name = getattr(grabbed, "drag_name", None)
         return bool(name and name.startswith("keyquest-"))
 
+    def _keyquest_release_drag(grabbed):
+        renpy.display.focus.set_grab(None)
+        moved = grabbed.drag_moved
+        grabbed.grab_x = grabbed.grab_y = grabbed.click_time = None
+        grabbed.drag_moved = False
+        grabbed.set_style_prefix("idle_", True)
+        if moved and grabbed.dragged is not None:
+            grabbed.dragged([grabbed], None)
+        _keyquest_trace("panel_grab_recovered", panel=grabbed.drag_name)
+
+    class _KeyquestDragState(object):
+        pending = None
+
+    _keyquest_drag_state = _KeyquestDragState()
+
+    class _KeyquestDragGuard(renpy.Displayable):
+        def render(self, width, height, st, at):
+            return renpy.Render(width, height)
+
+        def event(self, ev, x, y, st):
+            import pygame
+            focus = renpy.display.focus
+            grabbed = focus.get_grab()
+            pending = _keyquest_drag_state.pending
+            _keyquest_drag_state.pending = None
+            if not _keyquest_panel_grabbed():
+                return
+            # Ren'Py normally handles the release. Recover if a screen rebuild
+            # left the old widget holding input after the release was sent.
+            pointer_down = ev.type == pygame.MOUSEBUTTONDOWN and getattr(ev, "button", 0) == 1
+            lost_focus = (ev.type == pygame.ACTIVEEVENT and not getattr(ev, "gain", True))
+            if getattr(pygame, "WINDOWEVENT", None) == ev.type:
+                lost_focus = getattr(ev, "event", None) in tuple(
+                    getattr(pygame, name, -1) for name in ("WINDOWEVENT_LEAVE", "WINDOWEVENT_FOCUS_LOST"))
+            if grabbed is pending or lost_focus or pointer_down:
+                _keyquest_release_drag(grabbed)
+            elif (ev.type == pygame.MOUSEBUTTONUP and getattr(ev, "button", 0) == 1
+                  or ev.type == getattr(pygame, "FINGERUP", -1)):
+                _keyquest_drag_state.pending = grabbed
+                renpy.timeout(0.02)
+
+    def _keyquest_clear_pending_release():
+        _keyquest_drag_state.pending = None
+        if _keyquest_panel_grabbed():
+            renpy.display.focus.set_grab(None)
+
+    config.after_load_callbacks.append(_keyquest_clear_pending_release)
+
     def _keyquest_reset_panels():
         persistent.keyquest_position = None
         persistent.keyquest_panel_positions = {}
@@ -42,6 +90,7 @@ init python:
         renpy.show_screen("_keyquest_keyboard")
 
     _keyquest_screens = getattr(config, "always_shown_screens", config.overlay_screens)
+    _keyquest_screens.append("_keyquest_drag_guard")
     if "_keyquest_launcher" not in _keyquest_screens:
         _keyquest_screens.append("_keyquest_launcher")
 
@@ -63,6 +112,10 @@ style keyquest_key is button:
 style keyquest_key_text is button_text:
     color "#152538"
     size 24
+
+screen _keyquest_drag_guard():
+    zorder 1005
+    add _KeyquestDragGuard()
 
 screen _keyquest_launcher():
     zorder 990

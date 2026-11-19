@@ -76,6 +76,24 @@ label start:
         assert _keyquest_scan_state.watch_index == 0
         _keyquest_watch_apply(u"Wait for the next round", 2.5)
         assert _keyquest_scan_state.watch_value is None
+        _keyquest_scan_state.region = "race"
+        _keyquest_watch_apply(u"Mash S and I fast!", 3.0)
+        assert _keyquest_scan_state.watch_value == ("s", "i")
+        _keyquest_scan_state.watch_index = 1
+        _keyquest_watch_apply(u"", 3.34)
+        assert _keyquest_scan_state.watch_value == ("s", "i")
+        assert _keyquest_scan_state.watch_index == 1
+        _keyquest_watch_apply(u"Press A rapidly!", 3.68)
+        assert _keyquest_scan_state.watch_value == ("a",)
+        assert _keyquest_scan_state.watch_index == 0
+        _keyquest_watch_apply(u"", 4.02)
+        assert _keyquest_scan_state.watch_value == ("a",)
+        _keyquest_watch_apply(u"", 4.36)
+        assert _keyquest_scan_state.watch_value is None
+        _keyquest_watch_apply(u"Press A rapidly!", 4.7)
+        _keyquest_watch_apply(u"", 5.6)
+        assert _keyquest_scan_state.watch_value is None
+        _keyquest_scan_state.region = "full"
         _keyquest_scan_state.watch = "math"
         _keyquest_watch_apply(u"4 * 5 = ?", 3.0)
         assert _keyquest_scan_state.watch_value == "20"

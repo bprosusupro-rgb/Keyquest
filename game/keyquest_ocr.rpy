@@ -21,6 +21,7 @@ init python:
         watch_value = None
         watch_index = 0
         watch_confirmed = 0.0
+        watch_misses = 0
         next_scan = 0.0
 
     _keyquest_scan_state = _KeyquestScanState()
@@ -80,10 +81,10 @@ init python:
     def _keyquest_read_key_cue(text):
         cues = set()
         for line in text.splitlines():
-            match = _kq_re.match(r"^\s*(?:(?:press|tap|alternate(?:\s+between)?)\b|keys?\s*:)\s*(.+)$", line, _kq_re.I)
+            match = _kq_re.match(r"^\s*(?:(?:press|tap|mash|alternate(?:\s+between)?)\b|keys?\s*:)\s*(.+)$", line, _kq_re.I)
             if not match:
                 continue
-            cue = _kq_re.split(r"\s+(?:rapidly|quickly|repeatedly|now|to)\b", match.group(1), 1, flags=_kq_re.I)[0]
+            cue = _kq_re.split(r"\s+(?:rapidly|quickly|repeatedly|fast|now|to)\b", match.group(1), 1, flags=_kq_re.I)[0]
             cue = cue.strip(" .!:").lower().replace(u"→", ",")
             cue = cue.replace("[", "").replace("]", "").replace('"', "").replace(u"“", "").replace(u"”", "")
             tokens = _kq_re.split(r"\s*(?:[,/+&]|\band\b|\bthen\b)\s*|\s+", cue)
@@ -289,6 +290,9 @@ init python:
             renpy.log("Keyquest text input: " + repr(failure))
             _keyquest_ocr_return("The game could not accept this scan as text.")
 
+    def _keyquest_race_start(interval):
+        _keyquest_watch_start("keys", "race", ((), 3, min(0.08, interval)))
+
     def _keyquest_watch_start(mode, region, repeat_settings=((), 3, 0.15)):
         _keyquest_trace("ocr_watch_started", mode=mode, region=region)
         _keyquest_ocr_reset()
@@ -304,6 +308,7 @@ init python:
         state.watch_paused = False
         state.started = _kq_time.time()
         state.watch_confirmed = 0.0
+        state.watch_misses = 0
         state.watch_index = 0
         state.next_scan = state.started + 0.25
         renpy.hide_screen("_keyquest_smart_input")
@@ -313,7 +318,16 @@ init python:
         state = _keyquest_scan_state
         value = (_keyquest_read_key_cue(text) if state.watch == "keys"
                  else _keyquest_math_answer(text, state.region == "bottom"))
-        state.watch_confirmed = now
+        if state.watch == "keys" and state.region == "race":
+            if value is None:
+                state.watch_misses += 1
+                # Keep the most recent cue through one missed sample, briefly.
+                if state.watch_misses == 1 and now - state.watch_confirmed <= 0.8:
+                    return
+            else:
+                state.watch_misses = 0
+        if value is not None:
+            state.watch_confirmed = now
         if value != state.watch_value:
             _keyquest_trace("ocr_watch_changed", mode=state.watch, recognized=value is not None)
             state.watch_value = value
@@ -333,6 +347,7 @@ init python:
             _keyquest_trace("ocr_watch_resumed")
             state.request += 1
             state.watch_confirmed = 0.0
+            state.watch_misses = 0
             state.next_scan = now
         if now - state.started > 60:
             _keyquest_ocr_return("Live OCR ended after one minute.")
@@ -347,10 +362,10 @@ init python:
                 _keyquest_ocr_return("Live OCR could not start on this game. Try a one-shot scan.")
                 return
             _keyquest_watch_apply(text, now)
-        if state.watch_value is not None and now - state.watch_confirmed > 1.5:
+        if state.watch_value is not None and now - state.watch_confirmed > _keyquest_watch_expiry():
             _keyquest_watch_apply(u"", now)
         if now >= state.next_scan and not _keyquest_vision.busy:
-            state.next_scan = now + 0.55
+            state.next_scan = now + (0.34 if state.region == "race" else 0.55)
             try:
                 _keyquest_submit_local(state.watch, state.region)
             except Exception as error:
@@ -358,11 +373,14 @@ init python:
                 renpy.log("Keyquest live OCR: " + repr(error))
                 _keyquest_ocr_return("Could not capture the game screen.")
 
+    def _keyquest_watch_expiry():
+        return 0.8 if _keyquest_scan_state.region == "race" else 1.5
+
     def _keyquest_watch_press():
         state = _keyquest_scan_state
         if (_keyquest_panel_grabbed() or state.watch_paused or state.watch != "keys"
                 or not state.watch_value or not state.activity
-                or not state.activity.hasWindowFocus() or _kq_time.time() - state.watch_confirmed > 1.5):
+                or not state.activity.hasWindowFocus() or _kq_time.time() - state.watch_confirmed > _keyquest_watch_expiry()):
             return
         key = state.watch_value[state.watch_index]
         state.watch_index = (state.watch_index + 1) % len(state.watch_value)
@@ -462,7 +480,10 @@ screen _keyquest_smart_input(initial_mode="text", initial_region="full", initial
                 textbutton ("%d loops" % loops) style "keyquest_deck_key" action SetScreenVariable("loops", _keyquest_next_option(loops, (1, 3, 5, 10, 25, 50)))
                 textbutton ("%.2f s" % interval) style "keyquest_deck_key" action SetScreenVariable("interval", _keyquest_next_option(interval, (0.08, 0.15, 0.30, 0.60)))
                 textbutton "Start" style "keyquest_deck_accent" sensitive bool(sequence) action Function(_keyquest_start_repeat, sequence, loops, interval, region)
-            textbutton "Follow key prompts" style "keyquest_deck_key" action Function(_keyquest_watch_start, "keys", region, (sequence, loops, interval))
+            hbox:
+                spacing 6
+                textbutton "Race assist" style "keyquest_deck_accent" action Function(_keyquest_race_start, interval)
+                textbutton "Follow key prompts" style "keyquest_deck_key" action Function(_keyquest_watch_start, "keys", region, (sequence, loops, interval))
         else:
             hbox:
                 spacing 6
