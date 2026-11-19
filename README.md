@@ -6,7 +6,7 @@ A standalone Android app that puts a keyboard inside a compatible Ren’Py game.
 
 1. Sideload **KeyquestStudio.apk** and open **Keyquest Studio**.
 2. Choose a downloaded APK with the file picker or choose an installed single-APK game. The file picker needs an Android document provider. If Quest does not expose one, use the installed-game picker.
-3. Studio scans the selected APK and shows its title, package, app version, and Ren’Py engine version when available. Studio automatically chooses a profile for detected Ren’Py 7.8 and 8.0–8.5 builds. If engine metadata is absent, Studio looks for a bundled Python library and suggests a shortlist. Verify the engine family before selecting it. The Python marker can narrow the choices but cannot identify the exact engine version. A detected unsupported version stays blocked.
+3. Studio scans the selected APK and shows its title, package, app version, and Ren’Py engine version when available. Studio automatically chooses a profile for detected Ren’Py 7.8 and 8.0–8.5 builds. When the usual metadata is absent, Studio also checks loose and cached version modules and compares bundled engine-script fingerprints with official SDKs. A verified fingerprint can select the engine family automatically. Weaker script and Python clues give suggestions. Verify the engine family before selecting it. The Python marker can narrow the choices but cannot identify the exact engine version. A detected unsupported version stays blocked.
 4. Sideload the newly named APK from Downloads. Tap the **Keyboard** button in the game’s bottom-right corner. **S** and **I** are the default shortcuts. **Settings** lets you remap them, switch theme, change size, and dock the keyboard at the top or bottom.
 
 ### Build timeline and output name

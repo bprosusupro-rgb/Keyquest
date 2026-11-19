@@ -272,7 +272,9 @@ public final class Studio extends Activity {
     private static String describeInspection(ApkInspection result) {
         if (!result.universalRenpy) return "No supported Ren’Py universal APK layout detected.";
         if (result.alreadyPatched) return "Ren’Py game detected. This APK already contains Keyquest.";
-        if (result.engineVersion == null) return "Ren’Py game detected. Confirm the engine version to continue.";
+        if (result.fingerprintFamily != null) return "Ren’Py " + result.fingerprintFamily
+                + ".x profile matched from engine files. Ready to build.";
+        if (result.engineVersion == null) return "Ren’Py game detected. The engine version could not be confirmed.";
         if (!result.canBuild()) return "Ren’Py " + result.engineVersion
                 + " detected. Built-in profiles cover 7.8 and 8.0–8.5.";
         return "Ren’Py " + result.engineVersion + " detected. Ready to build.";
@@ -285,7 +287,9 @@ public final class Studio extends Activity {
 
     private String chosenFamily() {
         if (inspection == null) return null;
-        if (inspection.engineVersion != null) return ApkInspection.family(inspection.engineVersion);
+        if (inspection.engineVersion != null || inspection.fingerprintFamily != null) {
+            return inspection.automaticFamily();
+        }
         int position = profile.getSelectedItemPosition() - 1;
         return position >= 0 && position < ApkInspection.ENGINE_FAMILIES.length
                 ? ApkInspection.ENGINE_FAMILIES[position] : null;
@@ -317,8 +321,8 @@ public final class Studio extends Activity {
             String message;
             try {
                 ApkInspection current = ApkInspection.scan(source, true);
-                if (!current.canBuild() || (current.engineVersion != null
-                        && !family.equals(ApkInspection.family(current.engineVersion)))) {
+                if (!current.canBuild() || (current.automaticFamily() != null
+                        && !family.equals(current.automaticFamily()))) {
                     throw new IOException("The APK has changed or is incompatible. Select it again.");
                 }
                 unsigned = File.createTempFile("rebuild-", ".apk", getCacheDir());
@@ -493,7 +497,7 @@ public final class Studio extends Activity {
     private void refresh() {
         browse.setEnabled(!busy);
         installed.setEnabled(!busy);
-        profile.setVisibility(inspection != null && inspection.canBuild() && inspection.engineVersion == null
+        profile.setVisibility(inspection != null && inspection.canBuild() && inspection.automaticFamily() == null
                 ? View.VISIBLE : View.GONE);
         recommendation.setVisibility(inspection != null && inspection.universalRenpy
                 ? View.VISIBLE : View.GONE);

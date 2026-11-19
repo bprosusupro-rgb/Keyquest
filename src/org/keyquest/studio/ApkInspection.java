@@ -28,12 +28,21 @@ final class ApkInspection {
     final boolean alreadyPatched;
     final String engineVersion;
     final String pythonAbi;
+    final String fingerprintFamily;
+    final String fingerprintSuggestion;
 
-    private ApkInspection(boolean universalRenpy, boolean alreadyPatched, String engineVersion, String pythonAbi) {
+    private ApkInspection(boolean universalRenpy, boolean alreadyPatched, String engineVersion, String pythonAbi,
+                          String fingerprintFamily, String fingerprintSuggestion) {
         this.universalRenpy = universalRenpy;
         this.alreadyPatched = alreadyPatched;
         this.engineVersion = engineVersion;
         this.pythonAbi = pythonAbi;
+        this.fingerprintFamily = fingerprintFamily;
+        this.fingerprintSuggestion = fingerprintSuggestion;
+    }
+
+    String automaticFamily() {
+        return engineVersion == null ? fingerprintFamily : family(engineVersion);
     }
 
     boolean canBuild() {
@@ -70,8 +79,15 @@ final class ApkInspection {
                 }
             }
             String version = readEngine && gameScripts ? readVersionSafely(apk, archive) : null;
+            if (version == null && readEngine && gameScripts) {
+                version = readLooseVersion(apk);
+            }
+            EngineFingerprints fingerprint = version == null && readEngine && gameScripts
+                    ? EngineFingerprints.scan(apk, pythonAbi) : null;
             return new ApkInspection(gameScripts,
-                    apk.getEntry("assets/x-game/x-keyquest_overlay.rpyc") != null, version, pythonAbi);
+                    apk.getEntry("assets/x-game/x-keyquest_overlay.rpyc") != null, version, pythonAbi,
+                    fingerprint == null ? null : fingerprint.verifiedFamily,
+                    fingerprint == null ? null : fingerprint.suggestedFamily);
         }
     }
 
@@ -80,10 +96,45 @@ final class ApkInspection {
             return "Recommended profile: Ren’Py " + family(engineVersion) + ".x (engine metadata).";
         }
         if (engineVersion != null) return "This detected engine version has no bundled profile.";
+        if (fingerprintFamily != null) return "Recommended profile: Ren’Py " + fingerprintFamily
+                + ".x (matched bundled engine files).";
+        if (fingerprintSuggestion != null) return "Engine files resemble Ren’Py " + fingerprintSuggestion
+                + ".x. Check the game version before selecting this profile.";
         if ("2.7".equals(pythonAbi)) return "Python 2.7 found. Ren’Py 7.8 is the available 7.x profile; confirm your game uses it.";
         if ("3.9".equals(pythonAbi)) return "Python 3.9 found. Check the game’s version against the 8.0–8.3 profiles.";
         if ("3.12".equals(pythonAbi)) return "Python 3.12 found. Check whether the game uses 8.4 or 8.5; newer engines can also use this Python version.";
         return "No engine or Python marker found. Check the game’s version before choosing a profile.";
+    }
+
+    private static String readLooseVersion(ZipFile apk) throws IOException {
+        Enumeration<? extends ZipEntry> entries = apk.entries();
+        while (entries.hasMoreElements()) {
+            ZipEntry entry = entries.nextElement();
+            String name = entry.getName();
+            if (!(name.startsWith("assets/x-renpy/") || name.startsWith("assets/renpy/"))) continue;
+            if (!versionModule(name) || entry.getSize() <= 0 || entry.getSize() > 65_536) continue;
+            byte[] bytes = new byte[(int) entry.getSize()];
+            try (DataInputStream input = new DataInputStream(apk.getInputStream(entry))) {
+                input.readFully(bytes);
+            }
+            String version = parseVersion(name, bytes);
+            if (version != null) return version;
+        }
+        return null;
+    }
+
+    private static boolean versionModule(String path) {
+        String basename = path.substring(path.lastIndexOf('/') + 1);
+        if (basename.startsWith("x-")) basename = basename.substring(2);
+        return basename.equals("vc_version.py") || basename.equals("vc_version.pyc")
+                || basename.equals("vc_version.pyo")
+                || basename.startsWith("vc_version.cpython-") && basename.endsWith(".pyc");
+    }
+
+    private static String parseVersion(String name, byte[] bytes) {
+        Matcher matcher = (name.endsWith(".py") ? SOURCE_VERSION : COMPILED_VERSION)
+                .matcher(new String(bytes, StandardCharsets.ISO_8859_1));
+        return matcher.find() ? matcher.group(1) : null;
     }
 
     private static String readVersionSafely(ZipFile apk, ZipEntry entry) {
@@ -102,18 +153,17 @@ final class ApkInspection {
             archive.readFully(header);
             scanned += header.length;
             String name = field(header, 0, 100);
+            if (name.startsWith("./")) name = name.substring(2);
             if (name.isEmpty()) return null;
             long size = Long.parseLong(field(header, 124, 12).trim(), 8);
             if (size < 0 || size > TAR_SCAN_LIMIT - scanned) return null;
             long padded = ((size + 511) / 512) * 512;
             if (padded > TAR_SCAN_LIMIT - scanned) return null;
-            boolean compiled = name.endsWith("/vc_version.pyc");
-            if (size <= 65_536 && (compiled || name.endsWith("/vc_version.py"))) {
+            if (size <= 65_536 && name.startsWith("renpy/") && versionModule(name)) {
                 byte[] bytes = new byte[(int) size];
                 archive.readFully(bytes);
-                Matcher matcher = (compiled ? COMPILED_VERSION : SOURCE_VERSION)
-                        .matcher(new String(bytes, StandardCharsets.ISO_8859_1));
-                if (matcher.find()) return matcher.group(1);
+                String version = parseVersion(name, bytes);
+                if (version != null) return version;
                 skip(tar, padded - size);
             } else {
                 skip(tar, padded);
