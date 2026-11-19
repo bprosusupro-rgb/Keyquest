@@ -120,6 +120,69 @@ public final class QuestMacrosPlugin extends GodotPlugin {
         });
     }
 
+    private final java.util.concurrent.ThreadPoolExecutor gameKeys =
+            new java.util.concurrent.ThreadPoolExecutor(1, 1, 0, java.util.concurrent.TimeUnit.SECONDS,
+                    new java.util.concurrent.ArrayBlockingQueue<>(16));
+    private volatile String bridgeStatus = "Start the bridge from your authorized ADB connection.";
+
+    private synchronized String bridgeCode() {
+        Activity activity = getActivity();
+        if (activity == null) return "";
+        android.content.SharedPreferences preferences =
+                activity.getSharedPreferences("game_keys", Context.MODE_PRIVATE);
+        String code = preferences.getString("pairing_code", "");
+        if (code.isEmpty()) {
+            code = GameKeyBridge.newCode();
+            preferences.edit().putString("pairing_code", code).apply();
+        }
+        return code;
+    }
+
+    @UsedByGodot
+    public String gameKeySetupCommand() {
+        return "apk=$(pm path org.questpanel.macros | head -n 1 | cut -d: -f2-); "
+                + "CLASSPATH=\"$apk\" nohup app_process /system/bin org.questpanel.macros.GameKeyBridge "
+                + bridgeCode() + " </dev/null >/dev/null 2>&1 &";
+    }
+
+    @UsedByGodot
+    public void checkGameKeys() {
+        queueGameKey("check");
+    }
+
+    @UsedByGodot
+    public void stopGameKeys() {
+        gameKeys.getQueue().clear();
+        queueGameKey("stop");
+    }
+
+    @UsedByGodot
+    public String gameKeyStatus() {
+        return bridgeStatus;
+    }
+
+    @UsedByGodot
+    public void sendGameKey(String target, String display, int keycode) {
+        queueGameKey(target + ":" + display + ":" + keycode);
+    }
+
+    private void queueGameKey(String message) {
+        String code = bridgeCode();
+        if (code.isEmpty()) return;
+        try {
+            gameKeys.execute(() -> {
+                try {
+                    bridgeStatus = GameKeyBridge.request(code, message);
+                } catch (java.io.IOException unavailable) {
+                    bridgeStatus = "Game-key bridge unavailable. Run the ADB setup command and check the connection.";
+                    gameKeys.getQueue().clear();
+                }
+            });
+        } catch (java.util.concurrent.RejectedExecutionException busy) {
+            bridgeStatus = "Game-key queue is full.";
+        }
+    }
+
     @UsedByGodot
     public void stop() {
         Activity activity = getActivity();

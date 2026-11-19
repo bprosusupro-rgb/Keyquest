@@ -15,6 +15,9 @@ var draft: LineEdit
 var keyboard_status: Label
 var adb_path: LineEdit
 var android_display: LineEdit
+var native_display: LineEdit
+var native_game_keys := false
+var native_status: Label
 var key_rows: VBoxContainer
 var bridge_message := ""
 var shifted := false
@@ -119,6 +122,29 @@ func _ready() -> void:
 		usb.add_child(android_display)
 		actions.erase(_button(usb, "Focus game", _focus_game))
 
+
+	if OS.get_name() == "Android":
+		var hardware := _card(keyboard)
+		var mode := CheckButton.new()
+		mode.text = "Game keys via ADB setup"
+		mode.custom_minimum_size.y = 48
+		hardware.add_child(mode)
+		mode.toggled.connect(func(enabled: bool) -> void: native_game_keys = enabled)
+		native_display = LineEdit.new()
+		native_display.placeholder_text = "Android display ID (default 0)"
+		hardware.add_child(native_display)
+		var command := TextEdit.new()
+		command.editable = false
+		command.custom_minimum_size.y = 76
+		_button(hardware, "Show ADB setup command", func() -> void:
+			command.text = bridge.gameKeySetupCommand()
+			command.show()
+		)
+		hardware.add_child(command)
+		command.hide()
+		_button(hardware, "Check bridge", func() -> void: bridge.checkGameKeys())
+		_button(hardware, "Stop bridge", func() -> void: bridge.stopGameKeys())
+		native_status = _label(hardware, "", 16, MUTED)
 
 	var macro := _page("Macros")
 	_label(macro, "Tap sequence", 26, TEXT)
@@ -378,10 +404,16 @@ func _dispatch_key(value: String) -> void:
 			_send_usb_key(value)
 		return
 	bridge_message = ""
+	if native_game_keys:
+		var code := _android_keycode(value)
+		if code > 0:
+			var display := native_display.text.strip_edges()
+			bridge.sendGameKey(package_field.text.strip_edges(), "0" if display.is_empty() else display, code)
+		return
 	bridge.sendKey(package_field.text.strip_edges(), value)
 
 
-func _send_usb_key(value: String) -> void:
+func _android_keycode(value: String) -> int:
 	var letter := value.to_lower()
 	var keycode := 0
 	if letter >= "a" and letter <= "z":
@@ -390,6 +422,11 @@ func _send_usb_key(value: String) -> void:
 		keycode = 7 + value.to_int()
 	else:
 		keycode = {" ": 62, "\b": 67, "\n": 66}.get(value, 0)
+	return keycode
+
+
+func _send_usb_key(value: String) -> void:
+	var keycode := _android_keycode(value)
 	if keycode == 0:
 		_usb_status("USB game controls support letters, digits, Space, Backspace, and Enter.")
 		return
@@ -482,7 +519,9 @@ func _refresh_status() -> void:
 	readiness.add_theme_color_override("font_color", ACCENT if ready else MUTED)
 	service_button.text = "Accessibility settings" if ready else "Enable accessibility service"
 	status.text = bridge.getStatus() if bridge_message.is_empty() else bridge_message
-	keyboard_status.text = status.text
+	keyboard_status.text = bridge.gameKeyStatus() if native_game_keys else status.text
+	if native_status != null:
+		native_status.text = bridge.gameKeyStatus()
 	var point: String = bridge.takePoint()
 	if not point.is_empty():
 		var existing := steps.text.strip_edges()

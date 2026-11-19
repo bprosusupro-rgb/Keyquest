@@ -19,6 +19,17 @@ If the keyboard cannot send text, try a paired physical keyboard with the in-gam
 
 For minigames that ask for physical keys, such as **S** and **I**, pair a Bluetooth keyboard to the Quest and select the game panel before pressing the keys. The headset APK sends text through Android’s editor connection, which a game canvas may never create.
 
+### On-headset game keys with ADB setup
+
+1. Install v0.7.0 and open **Keyboard → Game keys via ADB setup**. Select the game and leave display ID at 0 for the first attempt.
+2. Tap **Show ADB setup command**. On your computer, run `adb -d shell`, then enter the displayed command at the Android shell prompt. Keep its pairing code private.
+3. Tap **Check bridge**. If it connects, tap an on-screen key in Keyquest. The helper checks the game’s focus on the chosen display, attempts to bring the game forward if needed, then uses Android’s shell keyevent command.
+4. Use **Stop bridge** when finished. Run setup again after reboot or when the two-hour session expires. The command starts the helper on the headset, so the computer is only used to start it. Whether Horizon OS keeps the helper alive after USB disconnection needs headset verification.
+
+The helper listens on device loopback only, authenticates requests with the pairing code, accepts a limited set of keycodes, and does not take arbitrary shell commands. If focus cannot be confirmed, it skips the key. On a headset that assigns the game a different Android display, use `adb -d shell dumpsys window displays` and find the display whose current focus belongs to the game.
+
+### Desktop USB controls
+
 With a computer and an authorized USB debugging connection, open this project in Godot and press **F5**. In **Keyboard**, find **USB game controls**. Enter the path to Android Platform Tools’ `adb` if needed. Enter the game package and click **Focus game** to ask Android to open it, or select the game panel by hand. Tap the visual **S** and **I** keys. Each sends an Android key event to the focused window. Leave **Display ID** blank to use Android’s normal keyboard routing. Set a display ID only if you know which display hosts the game. Horizon OS controls whether the launch and injected events reach the panel.
 
 ## Tap macros

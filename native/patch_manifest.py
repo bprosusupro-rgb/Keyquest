@@ -11,6 +11,9 @@ tree = ET.parse(path)
 manifest = tree.getroot()
 application = manifest.find("application")
 
+permission = ET.Element("uses-permission", {prefix + "name": "android.permission.INTERNET"})
+manifest.insert(list(manifest).index(application), permission)
+
 queries = ET.Element("queries")
 intent = ET.SubElement(queries, "intent")
 ET.SubElement(intent, "action", {prefix + "name": "android.intent.action.MAIN"})
