@@ -2,6 +2,10 @@
 
 A Godot control panel and Android accessibility service for a sideloaded 2D game on Meta Quest 3 or 3S. Keyquest adds an in-game keyboard, tap macros, and repeat tapping.
 
+## Put the keyboard inside a Ren’Py game
+
+The [Ren’Py APK patcher](renpy-patcher/) rebuilds a compatible downloaded or USB-connected installed game with its own **Keyboard** button. Use it when a game needs Ren’Py key events directly, such as the S/I minigame.
+
 ## Install and open the keyboard
 
 1. Sideload the signed ARM64 APK with SideQuest or `adb -d install -r QuestPanelMacros.apk`. The package name and signing key stay the same as v0.1.0.
