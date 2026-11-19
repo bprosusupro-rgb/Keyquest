@@ -26,6 +26,12 @@ init 999 python:
 
     import random as _test_random
     _test_goal4 = tuple(range(1, 16)) + (0,)
+    ranked = [(str(i), i) for i in range(15, 0, -1)]
+    real_example = (1, 2, 3, 4, 5, 9, 7, 8, 6, 13, 10, 11, 0, 14, 15, 12)
+    assert _keyquest_numbered_goal(ranked, real_example, 4) == _test_goal4
+    assert not _keyquest_numbered_goal(ranked[:-1] + [("12", 1)], real_example, 4)
+    broken_order = (2, 1) + _test_goal4[2:]
+    assert not _keyquest_numbered_goal(ranked, broken_order, 4)
     rng = _test_random.Random(934)
     for attempt in range(12):
         current = list(_test_goal4)
@@ -114,6 +120,16 @@ label start:
     $ assert len(_keyquest_minigame.tile_thumbnails) == 15
     $ tiles = _keyquest_minigame.tiles
     $ _keyquest_minigame.tile_goal = tiles[:14] + (tiles[15], 0)
+    python:
+        goal = _keyquest_minigame.tile_goal
+        _keyquest_minigame.tile_number_order = ()
+        _keyquest_review_tile(0)
+        _keyquest_review_tile(0)
+        assert _keyquest_minigame.tile_number_order == (goal[0],)
+        for tile_slot in range(1, 15):
+            _keyquest_review_tile(tile_slot)
+        assert _keyquest_minigame.tile_number_order is None
+        assert _keyquest_minigame.tile_goal == goal
     $ _keyquest_review_tile(0)
     $ _keyquest_review_tile(1)
     $ _keyquest_confirm_layout()

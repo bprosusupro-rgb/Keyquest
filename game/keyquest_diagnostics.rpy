@@ -10,7 +10,6 @@ init python:
 
     class _KeyquestDiagnostics(object):
         stream = None
-        java_string = None
         name = "Keyquest-log.txt"
         status = ""
         queue = None
@@ -21,49 +20,44 @@ init python:
         android_activity = None
 
     _keyquest_diagnostics = _KeyquestDiagnostics()
-    _keyquest_log_limit = 2 * 1024 * 1024
+    _keyquest_log_limit = 192 * 1024
 
     def _keyquest_open_diagnostic_output(reset):
         diag = _keyquest_diagnostics
-        if not renpy.android:
-            path = _keyquest_log_os.path.join(config.savedir, diag.name)
-            size = 0 if reset or not _keyquest_log_os.path.isfile(path) else _keyquest_log_os.path.getsize(path)
-            reset = reset or size >= _keyquest_log_limit
-            return open(path, "wb" if reset else "ab"), 0 if reset else size
-
-        from jnius import autoclass
-
-        diag.android_activity = autoclass("org.renpy.android.PythonSDLActivity").mActivity
-        diag.java_string = autoclass("java.lang.String")
-        package = diag.android_activity.getPackageName()
-        diag.name = "Keyquest-" + package + ".log.txt"
-        downloads = autoclass("android.provider.MediaStore$Downloads").EXTERNAL_CONTENT_URI
-        resolver = diag.android_activity.getContentResolver()
-        cursor = resolver.query(downloads, ["_id", "_size"], "_display_name=? AND relative_path=?",
-                                [diag.name, "Download/"], None)
-        uri = None
-        size = 0
-        if cursor is not None:
-            try:
-                if cursor.moveToFirst():
-                    uri = autoclass("android.content.ContentUris").withAppendedId(downloads, cursor.getLong(0))
-                    size = cursor.getLong(1)
-            finally:
-                cursor.close()
-        if uri is None:
-            values = autoclass("android.content.ContentValues")()
-            values.put("_display_name", diag.name)
-            values.put("mime_type", "text/plain")
-            values.put("relative_path", "Download/")
-            uri = resolver.insert(downloads, values)
-            if uri is None:
-                raise IOError("Could not create the diagnostic log")
-            reset = True
+        if renpy.android:
+            from jnius import autoclass
+            diag.android_activity = autoclass("org.renpy.android.PythonSDLActivity").mActivity
+            diag.name = "Keyquest-" + diag.android_activity.getPackageName() + ".log.txt"
+        path = _keyquest_log_os.path.join(config.savedir, diag.name)
+        size = 0 if reset or not _keyquest_log_os.path.isfile(path) else _keyquest_log_os.path.getsize(path)
         reset = reset or size >= _keyquest_log_limit
-        stream = resolver.openOutputStream(uri, "rwt" if reset else "wa")
-        if stream is None:
-            raise IOError("Could not open the diagnostic log")
-        return stream, 0 if reset else size
+        return open(path, "wb" if reset else "ab"), 0 if reset else size
+
+    def _keyquest_export_diagnostics():
+        diag = _keyquest_diagnostics
+        _keyquest_diagnostics_flush()
+        try:
+            from jnius import autoclass
+            activity = autoclass("org.renpy.android.PythonSDLActivity").mActivity
+            diag.name = "Keyquest-" + activity.getPackageName() + ".log.txt"
+            path = _keyquest_log_os.path.join(config.savedir, diag.name)
+            if not _keyquest_log_os.path.isfile(path):
+                diag.status = "Start a log before exporting."
+                return
+            with open(path, "rb") as log:
+                payload = log.read(_keyquest_log_limit)
+            if not payload:
+                diag.status = "The log is empty. Play briefly, then export again."
+                return
+            extras = autoclass("android.os.Bundle")()
+            extras.putString("name", diag.name)
+            extras.putString("log", payload.decode("ascii"))
+            intent = autoclass("android.content.Intent")()
+            intent.setClassName("org.keyquest.studio", "org.keyquest.studio.LogExportActivity")
+            intent.putExtras(extras)
+            activity.startActivity(intent)
+        except Exception as error:
+            diag.status = "Export could not open (%s). Install the latest Keyquest Studio and try Save to Downloads again." % type(error).__name__
 
     def _keyquest_diagnostic_line(event, fields):
         now = _keyquest_log_time.time()
@@ -100,10 +94,7 @@ init python:
                 _keyquest_diagnostics_close()
                 diag.stream, diag.size = _keyquest_open_diagnostic_output(True)
                 payload = _keyquest_diagnostic_line("log_rotated", {}) + payload
-            if diag.java_string is not None:
-                diag.stream.write(diag.java_string(payload).getBytes("UTF-8"))
-            else:
-                diag.stream.write(payload.encode("ascii"))
+            diag.stream.write(payload.encode("ascii"))
             diag.stream.flush()
             diag.size += len(payload)
             diag.queue = []
@@ -132,6 +123,8 @@ init python:
             _keyquest_diagnostics_flush()
             _keyquest_diagnostics_close()
             persistent.keyquest_diagnostics_enabled = False
+            if renpy.android:
+                _keyquest_export_diagnostics()
         else:
             _keyquest_diagnostics_start(True)
         renpy.save_persistent()
@@ -225,11 +218,13 @@ screen _keyquest_diagnostics_settings():
     $ logger = _keyquest_diagnostics
     use _keyquest_floating("diagnostics", "Diagnostics", 615, 290, (0.55, 0.32)):
         text ("Logging is on" if persistent.keyquest_diagnostics_enabled else "Logging is off") color "#eff8ff" size 24
-        text (("Downloads" if renpy.android else "Game saves") + " · " + logger.name) substitute False color "#b9d3e8" size 19 xmaximum 560
+        text (("Save to Downloads · " if renpy.android else "Game saves · ") + logger.name) substitute False color "#b9d3e8" size 19 xmaximum 560
         text "Logs include scene labels and error locations. Typed text and screenshots stay out of the file." color "#b9d3e8" size 19 xmaximum 560
         if logger.status:
             text logger.status color "#ffc2a9" size 19 xmaximum 560
         hbox:
             spacing 7
             textbutton ("Turn off logging" if persistent.keyquest_diagnostics_enabled else "Start fresh log") style "keyquest_deck_accent" action Function(_keyquest_diagnostics_toggle)
+            if renpy.android:
+                textbutton "Save to Downloads" style "keyquest_deck_key" action Function(_keyquest_export_diagnostics)
             textbutton "Back to keyboard" style "keyquest_deck_key" action [Hide("_keyquest_diagnostics_settings"), Show("_keyquest_keyboard")]

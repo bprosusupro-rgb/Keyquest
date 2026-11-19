@@ -19,6 +19,7 @@ init python:
         tile_generation = 0
         tile_side = 3
         tile_goal = ()
+        tile_number_order = None
         tile_thumbnails = {}
         tile_picked = None
         tiles = ()
@@ -417,7 +418,7 @@ init python:
             left, top = int(a[0] * width), int(a[1] * height)
             right, bottom = int(b[0] * width), int(b[1] * height)
             piece = frame.subsurface((left, top, right - left, bottom - top))
-            piece = renpy.display.scale.smoothscale(piece, (64, 46))
+            piece = renpy.display.scale.smoothscale(piece, (86, 64))
             with io.BytesIO() as out:
                 renpy.display.module.save_png(piece, out, 0)
                 previews[tile] = im.Data(out.getvalue(), "keyquest-tile-%d-%d.png" % (generation, tile))
@@ -426,11 +427,22 @@ init python:
     def _keyquest_open_review():
         state = _keyquest_minigame
         state.tile_picked = None
+        state.tile_number_order = None
         renpy.hide_screen("_keyquest_minigames")
         renpy.show_screen("_keyquest_tile_review")
 
     def _keyquest_review_tile(index):
         state = _keyquest_minigame
+        if state.tile_number_order is not None:
+            tile = state.tile_goal[index]
+            if tile not in state.tile_number_order:
+                state.tile_number_order += (tile,)
+                if len(state.tile_number_order) == len(state.tile_goal) - 1:
+                    state.tile_goal = state.tile_number_order + (0,)
+                    state.tile_number_order = None
+                    state.moves = ()
+                    state.message = "Number order set. Plan moves when ready."
+            return
         previous = state.tile_picked
         if previous is None:
             state.tile_picked = index
@@ -451,11 +463,41 @@ init python:
             return
         _keyquest_show_minigame("%d tile moves ready." % len(state.moves) if state.moves else "The picture is already arranged.")
 
+    def _keyquest_numbered_goal(labels, tiles, side):
+        ordered = []
+        for value, tile in labels:
+            value = value.strip()
+            if not value or len(value) > 2 or any(c not in "0123456789" for c in value):
+                return ()
+            ordered.append((int(value), tile))
+        ordered.sort()
+        if [value for value, tile in ordered] != list(range(1, side * side)):
+            return ()
+        target = tuple(tile for value, tile in ordered) + (0,)
+        return target if _keyquest_tile_parity(tiles, side) == _keyquest_tile_parity(target, side) else ()
+
+    def _keyquest_tile_number_images(frame, board, tiles, side):
+        import io
+
+        width, height = frame.get_size()
+        images = []
+        for index, tile in enumerate(tiles):
+            if tile:
+                a = _keyquest_board_point(board, side, index, 0.35, 0.25)
+                b = _keyquest_board_point(board, side, index, 0.65, 0.75)
+                left, top = int(a[0] * width), int(a[1] * height)
+                piece = frame.subsurface((left, top, int(b[0] * width) - left, int(b[1] * height) - top))
+                piece = renpy.display.scale.smoothscale(piece, (110, 110))
+                with io.BytesIO() as out:
+                    renpy.display.module.save_png(piece, out, 0)
+                    images.append((out.getvalue(), tile))
+        return images
+
     def _keyquest_make_plan():
         import threading
 
         state = _keyquest_minigame
-        if state.tile_busy:
+        if state.tile_busy or (renpy.android and _keyquest_vision.busy):
             return
         side = state.tile_side
         frame, board = _keyquest_frame(), _keyquest_board()
@@ -463,20 +505,52 @@ init python:
         generation = state.tile_generation
         if side == 4:
             state.tile_thumbnails = _keyquest_tile_thumbnails(frame, board, tiles, side, generation)
+        images, model_root = (), None
+        if renpy.android and not _keyquest_vision.unavailable:
+            try:
+                from jnius import autoclass
+                activity = autoclass("org.renpy.android.PythonSDLActivity").mActivity
+                model_root = activity.getCodeCacheDir().getAbsolutePath()
+                images = _keyquest_tile_number_images(frame, board, tiles, side)
+            except Exception as error:
+                _keyquest_trace("tile_number_capture_failed", kind=type(error).__name__)
         state.tile_result = None
         state.tile_busy = True
+        if images:
+            _keyquest_vision.busy = True
 
         def plan():
             try:
-                _, target, confidence = _keyquest_guess_layout(tiles, edges, side)
+                numbered = ()
+                if images:
+                    try:
+                        if _keyquest_vision.engine is None:
+                            _keyquest_vision.prepare(model_root)
+                        labels = []
+                        for image, tile in images:
+                            value = ""
+                            for scan_mode in ("digits-light", "digits-light-word", "digits"):
+                                value = _keyquest_vision.engine.recognize(image, "full", scan_mode)
+                                if value.isdigit() and 1 <= int(value) < side * side:
+                                    break
+                            labels.append((value, tile))
+                        numbered = _keyquest_numbered_goal(labels, tiles, side)
+                    except Exception:
+                        pass
+                    finally:
+                        _keyquest_vision.busy = False
+                if numbered:
+                    target, confidence = numbered, 100
+                else:
+                    _, target, confidence = _keyquest_guess_layout(tiles, edges, side)
                 if side == 4:
-                    result = (tiles, signatures, (), target, confidence, None)
+                    result = (tiles, signatures, (), target, confidence, bool(numbered), None)
                 else:
                     if confidence < 7:
                         raise ValueError("Tile edges are ambiguous. Recheck the board corners, then scan again.")
-                    result = (tiles, signatures, _keyquest_tile_moves(tiles, target, side), (), confidence, None)
+                    result = (tiles, signatures, _keyquest_tile_moves(tiles, target, side), (), confidence, bool(numbered), None)
             except Exception as error:
-                result = (None, None, (), (), 0, str(error))
+                result = (None, None, (), (), 0, False, str(error))
             state.tile_result = generation, result
             state.tile_busy = False
 
@@ -486,6 +560,8 @@ init python:
             thread.start()
         except Exception:
             state.tile_busy = False
+            if images:
+                _keyquest_vision.busy = False
             raise
 
     def _keyquest_slide_tile(tiles, index):
@@ -637,17 +713,20 @@ init python:
                 state.tile_result = None
                 if generation != state.tile_generation:
                     return
-                tiles, signatures, moves, goal, confidence, error = result
+                tiles, signatures, moves, goal, confidence, numbered, error = result
                 if error:
                     _keyquest_show_minigame(error, clear_moves=True)
                 else:
                     _keyquest_trace("tiles_scanned", board=tiles, moves=len(moves), review=bool(goal))
                     state.tiles, state.signatures, state.moves = tiles, signatures, moves
                     state.tile_goal = goal
+                    _keyquest_trace("tile_goal_source", source="numbers" if numbered else "picture")
                     if goal:
                         _keyquest_stop_minigame()
                         state.message = ("Picture match uncertain. Tap two tiles to swap them." if confidence < 7
                                          else "Check the picture. Tap two tiles to swap them if needed.")
+                        if numbered:
+                            state.message = "Read all tile numbers. Check the order, then plan moves."
                         _keyquest_open_review()
                         renpy.restart_interaction()
                     else:
@@ -704,7 +783,7 @@ screen _keyquest_tile_review():
     zorder 994
     $ helper = _keyquest_minigame
     use _keyquest_floating("tile-review", "Review 4 × 4 picture", 595, 495, (0.98, 0.35)):
-        text (helper.message or "Tap two tiles to swap them.") substitute False color "#b9d3e8" size 20 xmaximum 550
+        text (("Tap the tile labeled %d." % (len(helper.tile_number_order) + 1)) if helper.tile_number_order is not None else (helper.message or "Tap two tiles to swap them.")) substitute False color "#b9d3e8" size 20 xmaximum 550
         if helper.tile_goal:
             grid 4 4:
                 spacing 2
@@ -714,13 +793,15 @@ screen _keyquest_tile_review():
                             background Solid("#65dec1" if helper.tile_picked == index else "#1b2c42")
                             hover_background Solid("#629ccc")
                             padding (2, 2)
+                            sensitive (helper.tile_number_order is None or tile not in helper.tile_number_order)
                             action Function(_keyquest_review_tile, index)
                             add helper.tile_thumbnails[tile]
                     else:
-                        add Solid("#08131f") xysize (68, 50)
+                        add Solid("#08131f") xysize (90, 68)
         hbox:
             spacing 6
-            textbutton "Plan moves" style "keyquest_deck_accent" sensitive bool(helper.tile_goal) action Function(_keyquest_confirm_layout)
+            textbutton "Plan moves" style "keyquest_deck_accent" sensitive (bool(helper.tile_goal) and helper.tile_number_order is None) action Function(_keyquest_confirm_layout)
+            textbutton ("Cancel order" if helper.tile_number_order is not None else "Set number order") style "keyquest_deck_key" action SetField(helper, "tile_number_order", () if helper.tile_number_order is None else None)
             textbutton "Back" style "keyquest_deck_key" action Function(_keyquest_show_minigame)
 
 screen _keyquest_minigame_picker():

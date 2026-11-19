@@ -34,6 +34,7 @@ init python:
             self.set_image = bind(tess, "TessBaseAPISetImage2", None, pointer, pointer)
             self.text = bind(tess, "TessBaseAPIGetUTF8Text", pointer, pointer)
             self.release_text = bind(tess, "TessDeleteText", None, pointer)
+            self.set_variable = bind(tess, "TessBaseAPISetVariable", integer, pointer, c.c_char_p, c.c_char_p)
             self.clear = bind(tess, "TessBaseAPIClear", None, pointer)
             self.read_png = bind(lept, "pixReadMemPng", pointer, c.c_char_p, c.c_size_t)
             self.width = bind(lept, "pixGetWidth", integer, pointer)
@@ -43,6 +44,8 @@ init python:
             self.release_box = bind(lept, "boxDestroy", None, c.POINTER(pointer))
             self.rgb = bind(lept, "pixConvertTo32", pointer, pointer)
             self.brightness = bind(lept, "pixConvertRGBToGrayMinMax", pointer, pointer, integer)
+            self.luminance = bind(lept, "pixConvertRGBToLuminance", pointer, pointer)
+            self.invert = bind(lept, "pixInvert", pointer, pointer, pointer)
             self.threshold = bind(lept, "pixThresholdToBinary", pointer, pointer, integer)
             self.release_image = bind(lept, "pixDestroy", None, c.POINTER(pointer))
             self.engine = create()
@@ -59,6 +62,7 @@ init python:
                 raise ValueError("Could not decode game frame")
             cropped = None
             filtered = None
+            digits = mode.startswith("digits")
             try:
                 width, height = self.width(image), self.height(image)
                 area = _keyquest_ocr_crop(width, height, region)
@@ -76,7 +80,11 @@ init python:
                 race = region == "race" and mode == "keys"
                 if race:
                     filtered = self.race_text_mask(source)
-                self.mode(self.engine, 7 if race else (3 if mode == "text" else 11))
+                if digits:
+                    self.set_variable(self.engine, b"tessedit_char_whitelist", b"0123456789")
+                    if mode != "digits":
+                        filtered = self.tile_label_mask(source)
+                self.mode(self.engine, 7 if race or mode == "digits-light" else (8 if digits else (3 if mode == "text" else 11)))
                 self.set_image(self.engine, filtered or source)
                 text = self.text(self.engine)
                 if not text:
@@ -87,7 +95,25 @@ init python:
                     self.release_text(text)
             finally:
                 self.clear(self.engine)
+                if digits:
+                    self.set_variable(self.engine, b"tessedit_char_whitelist", b"")
                 for pix in (filtered, cropped, image):
+                    if pix:
+                        self.release_image(self.ctypes.byref(self.ctypes.c_void_p(pix)))
+
+        def tile_label_mask(self, image):
+            rgb = self.rgb(image)
+            if not rgb:
+                return None
+            gray = None
+            try:
+                gray = self.luminance(rgb)
+                mask = self.threshold(gray, 190) if gray else None
+                if mask:
+                    self.invert(mask, mask)
+                return mask
+            finally:
+                for pix in (gray, rgb):
                     if pix:
                         self.release_image(self.ctypes.byref(self.ctypes.c_void_p(pix)))
 
