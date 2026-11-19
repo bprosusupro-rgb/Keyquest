@@ -33,7 +33,8 @@ public final class Studio extends Activity {
     private final String[] phases = {"Repacking", "Adding controls", "Signing", "Verifying"};
     private Button browse, installed, build, save, options;
     private ProgressBar progress;
-    private CheckBox profile, valuesAddon, renameInLibrary;
+    private CheckBox valuesAddon, renameInLibrary;
+    private Spinner profile;
     private File selectedApk, cachedApk;
     private ApkInspection inspection;
     private File ready;
@@ -80,7 +81,14 @@ public final class Studio extends Activity {
 
         LinearLayout output = card(workspace);
         heading(output, "Build keyboard APK");
-        profile = option(output, "My game uses Ren’Py 8.4.1");
+        profile = new Spinner(this, Spinner.MODE_DIALOG);
+        profile.setPrompt("Select the game’s Ren’Py version");
+        profile.setMinimumHeight(dp(52));
+        ArrayList<String> versions = new ArrayList<>();
+        versions.add("Choose the game’s Ren’Py version");
+        for (String family : ApkInspection.ENGINE_FAMILIES) versions.add("Ren’Py " + family + ".x");
+        profile.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, versions));
+        output.addView(profile);
         valuesAddon = option(output, "Include local value editor");
         label(output, "Output name", 15, MUTED, true);
         outputTitle = new EditText(this);
@@ -95,7 +103,7 @@ public final class Studio extends Activity {
         outputTitle.setBackground(surface(CONTROL, dp(12), dp(1), BORDER));
         output.addView(outputTitle);
         renameInLibrary = option(output, "Rename in app library");
-        renameInLibrary.setChecked(true);
+        renameInLibrary.setChecked(false);
         label(output, "Back up game saves before installing the re-signed copy.", 14, MUTED, false);
         build = button(output, "Build APK", true, view -> confirmBuild());
         save = button(output, "Save to Downloads", true, view -> saveToDownloads());
@@ -117,7 +125,14 @@ public final class Studio extends Activity {
         workspace.addOnLayoutChangeListener((view, left, top, right, bottom,
                 oldLeft, oldTop, oldRight, oldBottom) -> arrange(workspace, inputs, output, right - left));
 
-        profile.setOnCheckedChangeListener((view, checked) -> refresh());
+        profile.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                refresh();
+            }
+            @Override public void onNothingSelected(AdapterView<?> parent) {
+                refresh();
+            }
+        });
         refresh();
     }
 
@@ -184,7 +199,7 @@ public final class Studio extends Activity {
         timeline.setText("");
         timing.setText("");
         outputTitle.setText("");
-        profile.setChecked(false);
+        profile.setSelection(0);
         selection.setText(fallbackName);
         status.setText("Scanning the APK…");
         busy = true;
@@ -252,14 +267,22 @@ public final class Studio extends Activity {
         if (!result.universalRenpy) return "No supported Ren’Py universal APK layout detected.";
         if (result.alreadyPatched) return "Ren’Py game detected. This APK already contains Keyquest.";
         if (result.engineVersion == null) return "Ren’Py game detected. Confirm the engine version to continue.";
-        if (!result.canBuild()) return "Ren’Py " + result.engineVersion + " detected. This build supports Ren’Py "
-                + ApkInspection.SUPPORTED_VERSION + ".";
+        if (!result.canBuild()) return "Ren’Py " + result.engineVersion
+                + " detected. Built-in profiles cover 7.8 and 8.0–8.5.";
         return "Ren’Py " + result.engineVersion + " detected. Ready to build.";
     }
 
     private boolean canBuild() {
         return !busy && selectedApk != null && inspection != null && inspection.canBuild()
-                && (inspection.engineVersion != null || profile.isChecked());
+                && chosenFamily() != null;
+    }
+
+    private String chosenFamily() {
+        if (inspection == null) return null;
+        if (inspection.engineVersion != null) return ApkInspection.family(inspection.engineVersion);
+        int position = profile.getSelectedItemPosition() - 1;
+        return position >= 0 && position < ApkInspection.ENGINE_FAMILIES.length
+                ? ApkInspection.ENGINE_FAMILIES[position] : null;
     }
 
     private void confirmBuild() {
@@ -273,30 +296,34 @@ public final class Studio extends Activity {
         busy = true;
         filename = title.replaceAll("[^\\p{L}\\p{N}._ -]+", "-").replaceAll(" +", " ").trim() + ".apk";
         final String libraryLabel = renameInLibrary.isChecked() ? title : null;
-        status.setText("Checking the source APK…");
+        final String family = chosenFamily();
+        status.setText("Checking the source APK for Ren’Py " + family + ".x…");
         timeline.setText("");
         timing.setText("");
         progress.setIndeterminate(true);
         refresh();
         final File source = selectedApk;
         final boolean includeValues = valuesAddon.isChecked();
+        final String profileKey = family.replace('.', '_');
         new Thread(() -> {
             File unsigned = null, result = null;
             String message;
             try {
-                if (!ApkInspection.scan(source, true).canBuild()) {
+                ApkInspection current = ApkInspection.scan(source, true);
+                if (!current.canBuild() || (current.engineVersion != null
+                        && !family.equals(ApkInspection.family(current.engineVersion)))) {
                     throw new IOException("The APK has changed or is incompatible. Select it again.");
                 }
                 unsigned = File.createTempFile("rebuild-", ".apk", getCacheDir());
                 result = File.createTempFile("keyboard-", ".apk", getCacheDir());
                 Map<String, byte[]> gameAssets = new LinkedHashMap<>();
-                gameAssets.put("assets/x-game/x-keyquest_overlay.rpyc", readAsset("keyquest_8_4_1.rpyc"));
+                gameAssets.put("assets/x-game/x-keyquest_overlay.rpyc", readAsset("keyquest_" + profileKey + ".rpyc"));
                 for (String artwork : new String[]{"logo", "panel", "panel_mint", "key", "key_focus", "sheet"}) {
                     String filename = "keyquest_" + artwork + ".png";
                     gameAssets.put("assets/x-game/x-" + filename, readAsset(filename));
                 }
                 if (includeValues) {
-                    gameAssets.put("assets/x-game/x-keyquest_values.rpyc", readAsset("keyquest_values_8_4_1.rpyc"));
+                    gameAssets.put("assets/x-game/x-keyquest_values.rpyc", readAsset("keyquest_values_" + profileKey + ".rpyc"));
                 }
                 ApkBuilder.build(source, unsigned, result, gameAssets, signer(), libraryLabel, new BuildTimeline());
                 message = String.format(Locale.getDefault(), "Verified · %.1f MB\n%s",

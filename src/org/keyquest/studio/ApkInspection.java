@@ -8,7 +8,15 @@ import java.util.regex.Pattern;
 import java.util.zip.*;
 
 final class ApkInspection {
-    static final String SUPPORTED_VERSION = "8.4.1";
+    static final String[] ENGINE_FAMILIES = {"7.8", "8.0", "8.1", "8.2", "8.3", "8.4", "8.5"};
+
+    static String family(String version) {
+        if (version == null) return null;
+        for (String candidate : ENGINE_FAMILIES) {
+            if (version.equals(candidate) || version.startsWith(candidate + ".")) return candidate;
+        }
+        return null;
+    }
     private static final String PRIVATE_ARCHIVE = "assets/private.mp3";
     private static final long TAR_SCAN_LIMIT = 96L * 1024 * 1024;
     private static final Pattern SOURCE_VERSION = Pattern.compile(
@@ -28,7 +36,7 @@ final class ApkInspection {
 
     boolean canBuild() {
         return universalRenpy && !alreadyPatched
-                && (engineVersion == null || SUPPORTED_VERSION.equals(engineVersion));
+                && (engineVersion == null || family(engineVersion) != null);
     }
 
     static ApkInspection scan(File file, boolean readEngine) throws IOException {

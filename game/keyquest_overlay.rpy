@@ -10,8 +10,9 @@ init python:
         pygame.event.post(pygame.event.Event(
             pygame.KEYUP, key=key, mod=mods, unicode=""))
 
-    if "_keyquest_launcher" not in config.always_shown_screens:
-        config.always_shown_screens.append("_keyquest_launcher")
+    _keyquest_screens = getattr(config, "always_shown_screens", config.overlay_screens)
+    if "_keyquest_launcher" not in _keyquest_screens:
+        _keyquest_screens.append("_keyquest_launcher")
 
 default persistent.keyquest_top = False
 default persistent.keyquest_compact = False

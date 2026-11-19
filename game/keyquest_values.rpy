@@ -3,7 +3,7 @@
 init python:
     def _keyquest_read_value(name):
         import re
-        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", name):
+        if not re.match(r"[A-Za-z][A-Za-z0-9_]{0,63}\Z", name):
             return None
         value = vars(renpy.store).get(name)
         return value if type(value) in (int, float) else None
@@ -12,17 +12,17 @@ init python:
         import math
         current = _keyquest_read_value(name)
         if current is None:
-            renpy.set_screen_variable("feedback", "This name does not match a numeric game value.")
+            SetScreenVariable("feedback", "This name does not match a numeric game value.")()
             return
         try:
             value = type(current)(text.strip())
-            if not math.isfinite(value) or abs(value) > 1000000000000:
+            if (math.isnan(value) or math.isinf(value)) or abs(value) > 1000000000000:
                 raise ValueError()
         except (ValueError, OverflowError):
-            renpy.set_screen_variable("feedback", "Enter a valid number of the same type (up to 1 trillion).")
+            SetScreenVariable("feedback", "Enter a valid number of the same type (up to 1 trillion).")()
             return
         setattr(renpy.store, name, value)
-        renpy.set_screen_variable("feedback", "{}: {} → {}".format(name, current, value))
+        SetScreenVariable("feedback", "{}: {} → {}".format(name, current, value))()
 
 screen _keyquest_values():
     zorder 992
