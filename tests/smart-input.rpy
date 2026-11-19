@@ -4,12 +4,16 @@ init 999 python:
     pygame.event.clear()
     for sample, answer in (
             (u"25+17=?", "42"), (u"(12 − 4) × 3 = ?", "24"), (u"7 ÷ 2 = ?", "3.5"),
-            (u"007 + 05", "12"), (u"9 - 9 = ?", "0"), ("1 / 3", "0.333333"), ("-1 / 1000000000", "0"),
+            (u"3.X-5?", "-15"), (u"3 X -5 ?", "-15"), (u"007 + 05", "12"), (u"9 - 9 = ?", "0"), ("1 / 3", "0.333333"), ("-1 / 1000000000", "0"),
             ("2**6", None), ("8//2", None), ("2/0", None), ("1+2\n5+7", None),
             ("4*500000000", None), ("print(1)", None)):
         assert _keyquest_math_answer(sample) == answer, (sample, _keyquest_math_answer(sample))
+    assert _keyquest_math_answer("3.X-5?", True) == "-15"
+    assert _keyquest_math_answer("3.X-57", True) is None
     assert _keyquest_read_key_cue(u"Press S and I rapidly!") == ("s", "i")
     assert _keyquest_read_key_cue(u"Press S and | rapidly!") == ("s", "i")
+    assert _keyquest_read_key_cue(u"Alternate between [S] and [I] rapidly!") == ("s", "i")
+    assert _keyquest_read_key_cue(u"Tap “S” then “I”") == ("s", "i")
     assert _keyquest_read_key_cue(u"Keys: A → Enter, A") == ("a", "RETURN", "a")
     assert _keyquest_read_key_cue(u"Press Space to continue") == ("SPACE",)
     assert _keyquest_read_key_cue(u"Press S\nPress I") is None

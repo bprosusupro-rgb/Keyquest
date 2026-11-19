@@ -50,14 +50,16 @@ init python:
             raise ValueError("Arithmetic limit")
         return result
 
-    def _keyquest_math_answer(text):
+    def _keyquest_math_answer(text, require_prompt=False):
         replacements = ((u"×", "*"), (u"÷", "/"), (u"−", "-"), (u"–", "-"))
         for before, after in replacements:
             text = text.replace(before, after)
         candidates = set()
         for line in text.splitlines():
             line = line.strip()
-            line = _kq_re.sub(r"(?<=\d)\s*[xX]\s*(?=[\d.(])", "*", line)
+            if require_prompt and not line.endswith(("?", "=")):
+                continue
+            line = _kq_re.sub(r"(?<=[\d.)])\s*[xX]\s*(?=[+\-\d.(])", "*", line)
             expression = _kq_re.sub(r"\s*(?:=\s*\??|\?)\s*$", "", line).strip()
             if (len(expression) <= 64 and _kq_re.match(r"^[0-9.()+*/ \t-]+\Z", expression)
                     and _kq_re.search(r"[\d.)]\s*[+*/-]", expression)):
@@ -77,11 +79,12 @@ init python:
     def _keyquest_read_key_cue(text):
         cues = set()
         for line in text.splitlines():
-            match = _kq_re.match(r"^\s*(?:press|tap|keys?\s*:)\s*(.+)$", line, _kq_re.I)
+            match = _kq_re.match(r"^\s*(?:(?:press|tap|alternate(?:\s+between)?)\b|keys?\s*:)\s*(.+)$", line, _kq_re.I)
             if not match:
                 continue
             cue = _kq_re.split(r"\s+(?:rapidly|quickly|repeatedly|now|to)\b", match.group(1), 1, flags=_kq_re.I)[0]
             cue = cue.strip(" .!:").lower().replace(u"→", ",")
+            cue = cue.replace("[", "").replace("]", "").replace('"', "").replace(u"“", "").replace(u"”", "")
             tokens = _kq_re.split(r"\s*(?:[,/+&]|\band\b|\bthen\b)\s*|\s+", cue)
             tokens = tuple({"space": "SPACE", "enter": "RETURN", "|": "i"}.get(token, token) for token in tokens if token)
             if 0 < len(tokens) <= 12 and all(
@@ -135,16 +138,19 @@ init python:
             state.activity = autoclass("org.renpy.android.PythonSDLActivity").mActivity
         if not state.activity.hasWindowFocus() or _keyquest_vision.busy:
             return False
-        size = _keyquest_capture_size(960 if state.watch else 1440)
+        detailed = region in ("race", "bottom")
+        size = _keyquest_capture_size(960 if state.watch and not detailed else 1440, detailed)
         frame = renpy.screenshot_to_bytes(size)
         if not frame:
             return False
         return _keyquest_vision.start(state.request, frame, region, mode,
                                       state.activity.getCodeCacheDir().getAbsolutePath())
 
-    def _keyquest_capture_size(maximum):
+    def _keyquest_capture_size(maximum, allow_upscale=False):
         width, height = config.screen_width, config.screen_height
-        scale = min(1.0, float(maximum) / max(width, height), (1550000.0 / (width * height)) ** 0.5)
+        scale = min(float(maximum) / max(width, height), (1550000.0 / (width * height)) ** 0.5)
+        if not allow_upscale:
+            scale = min(1.0, scale)
         return (max(1, int(width * scale)), max(1, int(height * scale)))
 
     def _keyquest_ocr_capture_frame():
@@ -179,7 +185,7 @@ init python:
             messenger = autoclass("android.os.Messenger")(handler)
             state.bridge = (callback, handler, messenger, activity)
 
-            frame = renpy.screenshot_to_bytes(_keyquest_capture_size(1440))
+            frame = renpy.screenshot_to_bytes(_keyquest_capture_size(1440, state.region in ("race", "bottom")))
             if not frame:
                 raise ValueError("No game frame")
             bitmap = autoclass("android.graphics.BitmapFactory").decodeByteArray(frame, 0, len(frame))
@@ -188,16 +194,17 @@ init python:
             crop = bitmap
             try:
                 width, height = bitmap.getWidth(), bitmap.getHeight()
-                if state.region == "top" and height >= 3:
-                    crop = autoclass("android.graphics.Bitmap").createBitmap(bitmap, 0, 0, width, height // 3)
-                elif state.region == "center" and width >= 5 and height >= 5:
-                    crop = autoclass("android.graphics.Bitmap").createBitmap(
-                        bitmap, width // 10, height // 4, width * 4 // 5, height // 2)
+                area = _keyquest_ocr_crop(width, height, state.region)
+                if area is not None:
+                    crop = autoclass("android.graphics.Bitmap").createBitmap(bitmap, *area)
                 stream = autoclass("java.io.ByteArrayOutputStream")()
-                jpeg = autoclass("android.graphics.Bitmap$CompressFormat").JPEG
-                for quality in (92, 76, 58, 40):
+                formats = autoclass("android.graphics.Bitmap$CompressFormat")
+                encodings = [(formats.JPEG, quality) for quality in (92, 76, 58, 40)]
+                if state.region == "race":
+                    encodings.insert(0, (formats.PNG, 100))
+                for encoding, quality in encodings:
                     stream.reset()
-                    if crop.compress(jpeg, quality, stream) and stream.size() <= 400 * 1024:
+                    if crop.compress(encoding, quality, stream) and stream.size() <= 400 * 1024:
                         break
                 else:
                     raise ValueError("Frame is too large")
@@ -206,6 +213,7 @@ init python:
                 extras.putByteArray("image", stream.toByteArray())
                 extras.putParcelable("reply", messenger)
                 extras.putBoolean("math", state.mode in ("math", "keys"))
+                extras.putBoolean("race", state.region == "race" and state.mode == "keys")
                 intent = autoclass("android.content.Intent")()
                 intent.setClassName("org.keyquest.studio", "org.keyquest.studio.OcrActivity")
                 intent.addFlags(0x10000)  # FLAG_ACTIVITY_NO_ANIMATION
@@ -250,14 +258,14 @@ init python:
         if state.mode == "keys":
             keys = _keyquest_read_key_cue(text)
             if keys is None:
-                _keyquest_ocr_return("No clear key prompt found. Try Top or Center.")
+                _keyquest_ocr_return("No clear key prompt found. Try Race for the running minigame.")
             else:
                 _keyquest_ocr_return("Check the detected keys, then press Start.", keys)
             return
         if state.mode == "math":
-            output = _keyquest_math_answer(text)
+            output = _keyquest_math_answer(text, state.region == "bottom")
             if output is None:
-                _keyquest_ocr_return("No single arithmetic problem found. Try Top or Center.")
+                _keyquest_ocr_return("No single arithmetic problem found. Choose the area that contains it.")
                 return
         else:
             output = u" ".join(text.split())[:160]
@@ -292,7 +300,8 @@ init python:
 
     def _keyquest_watch_apply(text, now):
         state = _keyquest_scan_state
-        value = _keyquest_read_key_cue(text) if state.watch == "keys" else _keyquest_math_answer(text)
+        value = (_keyquest_read_key_cue(text) if state.watch == "keys"
+                 else _keyquest_math_answer(text, state.region == "bottom"))
         state.watch_confirmed = now
         if value != state.watch_value:
             state.watch_value = value
@@ -397,77 +406,59 @@ screen _keyquest_smart_input(initial_mode="text", initial_region="full", initial
     default sequence = initial_repeat[0]
     default loops = initial_repeat[1]
     default interval = initial_repeat[2]
-    frame:
-        align (0.5, 0.38)
-        at Transform(zoom=min(1.0, config.screen_width / 620.0, config.screen_height / 555.0))
-        background Frame("keyquest_panel.png", 24, 24)
-        padding (18, 16)
-        xsize 610
-        vbox:
-            spacing 8
-            hbox:
-                spacing 12
-                add "keyquest_logo.png" xysize (38, 38)
-                text "Smart Input" color "#eff8ff" size 28 yalign 0.5
+    use _keyquest_floating("ocr-setup", "Smart Input", 610, 555, (0.5, 0.38)):
+        hbox:
+            spacing 6
+            for choice, caption in (("text", "Copy text"), ("math", "Solve math"), ("repeat", "Repeat keys")):
+                textbutton caption style "keyquest_deck_key" selected (mode == choice) action SetScreenVariable("mode", choice)
+            textbutton "Keyboard" style "keyquest_deck_key" action [Hide("_keyquest_smart_input"), Show("_keyquest_keyboard")]
+        if status and mode == initial_mode:
+            text status color "#fff0c8" size 19 substitute False
+        if mode == "repeat":
+            text (_keyquest_sequence_label(sequence) if sequence else "Tap keys in the order you want them pressed.") color "#b9d3e8" size 19 xmaximum 565
+            for row in ("1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm"):
+                hbox:
+                    spacing 4
+                    for letter in row:
+                        textbutton letter.upper() style "keyquest_deck_key" xsize 45 sensitive (len(sequence) < 12) action SetScreenVariable("sequence", sequence + (letter,))
             hbox:
                 spacing 6
-                for choice, caption in (("text", "Copy text"), ("math", "Solve math"), ("repeat", "Repeat keys")):
-                    textbutton caption style "keyquest_deck_key" selected (mode == choice) action SetScreenVariable("mode", choice)
-                textbutton "Keyboard" style "keyquest_deck_key" action [Hide("_keyquest_smart_input"), Show("_keyquest_keyboard")]
-            if status and mode == initial_mode:
-                text status color "#fff0c8" size 19 substitute False
-            if mode == "repeat":
-                text (_keyquest_sequence_label(sequence) if sequence else "Tap keys in the order you want them pressed.") color "#b9d3e8" size 19 xmaximum 565
-                for row in ("1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm"):
-                    hbox:
-                        spacing 4
-                        for letter in row:
-                            textbutton letter.upper() style "keyquest_deck_key" xsize 45 sensitive (len(sequence) < 12) action SetScreenVariable("sequence", sequence + (letter,))
-                hbox:
-                    spacing 6
-                    for button, value in (("Space", "SPACE"), ("Enter", "RETURN")):
-                        textbutton button style "keyquest_deck_key" sensitive (len(sequence) < 12) action SetScreenVariable("sequence", sequence + (value,))
-                    textbutton "Undo" style "keyquest_deck_key" sensitive bool(sequence) action SetScreenVariable("sequence", sequence[:-1])
-                    textbutton "Clear" style "keyquest_deck_key" sensitive bool(sequence) action SetScreenVariable("sequence", ())
-                hbox:
-                    spacing 6
-                    textbutton ("Area: " + region.title()) style "keyquest_deck_key" action SetScreenVariable("region", _keyquest_next_option(region, ("full", "top", "center")))
-                    textbutton "Read keys" style "keyquest_deck_key" action Function(_keyquest_ocr_begin, "keys", region, "show", (sequence, loops, interval))
-                    textbutton ("%d loops" % loops) style "keyquest_deck_key" action SetScreenVariable("loops", _keyquest_next_option(loops, (1, 3, 5, 10, 25, 50)))
-                    textbutton ("%.2f s" % interval) style "keyquest_deck_key" action SetScreenVariable("interval", _keyquest_next_option(interval, (0.08, 0.15, 0.30, 0.60)))
-                    textbutton "Start" style "keyquest_deck_accent" sensitive bool(sequence) action Function(_keyquest_start_repeat, sequence, loops, interval, region)
-                textbutton "Follow key prompts" style "keyquest_deck_key" action Function(_keyquest_watch_start, "keys", region, (sequence, loops, interval))
-            else:
-                hbox:
-                    spacing 6
-                    for location, caption in (("full", "Full screen"), ("top", "Top"), ("center", "Center")):
-                        textbutton caption style "keyquest_deck_key" selected (region == location) action SetScreenVariable("region", location)
-                hbox:
-                    spacing 6
-                    textbutton "Show result" style "keyquest_deck_key" selected (destination == "show") action SetScreenVariable("destination", "show")
-                    textbutton "Type in game" style "keyquest_deck_key" selected (destination == "type") action SetScreenVariable("destination", "type")
-                    textbutton ("Scan & show" if destination == "show" else "Scan & type") style "keyquest_deck_accent" action Function(_keyquest_ocr_begin, mode, region, destination)
-                if destination == "type":
-                    text "Open the game's text field before scanning." color "#b9d3e8" size 19
-                elif mode == "math":
-                    textbutton "Watch for answers" style "keyquest_deck_key" action Function(_keyquest_watch_start, "math", region)
+                for button, value in (("Space", "SPACE"), ("Enter", "RETURN")):
+                    textbutton button style "keyquest_deck_key" sensitive (len(sequence) < 12) action SetScreenVariable("sequence", sequence + (value,))
+                textbutton "Undo" style "keyquest_deck_key" sensitive bool(sequence) action SetScreenVariable("sequence", sequence[:-1])
+                textbutton "Clear" style "keyquest_deck_key" sensitive bool(sequence) action SetScreenVariable("sequence", ())
+            hbox:
+                spacing 6
+                textbutton ("Area: " + region.title()) style "keyquest_deck_key" action SetScreenVariable("region", _keyquest_next_option(region, ("full", "top", "center", "bottom", "race")))
+                textbutton "Read keys" style "keyquest_deck_key" action Function(_keyquest_ocr_begin, "keys", region, "show", (sequence, loops, interval))
+                textbutton ("%d loops" % loops) style "keyquest_deck_key" action SetScreenVariable("loops", _keyquest_next_option(loops, (1, 3, 5, 10, 25, 50)))
+                textbutton ("%.2f s" % interval) style "keyquest_deck_key" action SetScreenVariable("interval", _keyquest_next_option(interval, (0.08, 0.15, 0.30, 0.60)))
+                textbutton "Start" style "keyquest_deck_accent" sensitive bool(sequence) action Function(_keyquest_start_repeat, sequence, loops, interval, region)
+            textbutton "Follow key prompts" style "keyquest_deck_key" action Function(_keyquest_watch_start, "keys", region, (sequence, loops, interval))
+        else:
+            hbox:
+                spacing 6
+                for location, caption in (("full", "Full screen"), ("top", "Top"), ("center", "Center"), ("bottom", "Bottom")):
+                    textbutton caption style "keyquest_deck_key" selected (region == location) action SetScreenVariable("region", location)
+            hbox:
+                spacing 6
+                textbutton "Show result" style "keyquest_deck_key" selected (destination == "show") action SetScreenVariable("destination", "show")
+                textbutton "Type in game" style "keyquest_deck_key" selected (destination == "type") action SetScreenVariable("destination", "type")
+                textbutton ("Scan & show" if destination == "show" else "Scan & type") style "keyquest_deck_accent" action Function(_keyquest_ocr_begin, mode, region, destination)
+            if destination == "type":
+                text "Open the game's text field before scanning." color "#b9d3e8" size 19
+            elif mode == "math":
+                textbutton "Watch for answers" style "keyquest_deck_key" action Function(_keyquest_watch_start, "math", region)
 
 screen _keyquest_ocr_result(mode, region, result):
     zorder 995
-    frame:
-        align (0.5, 0.12)
-        at Transform(zoom=min(1.0, config.screen_width / 530.0, config.screen_height / 350.0))
-        xsize 520
-        background Frame("keyquest_panel.png", 24, 24)
-        padding (18, 16)
-        vbox:
-            spacing 8
-            text ("Answer" if mode == "math" else "Recognized text") color "#b9d3e8" size 22
-            text result.replace("{", "{{") substitute False color "#eff8ff" size (48 if mode == "math" else 24) xmaximum 480
-            hbox:
-                spacing 6
-                textbutton "Scan again" style "keyquest_deck_accent" action Function(_keyquest_ocr_begin, mode, region, "show")
-                textbutton "Close" style "keyquest_deck_key" action Hide("_keyquest_ocr_result")
+    use _keyquest_floating("ocr-result", "OCR result", 520, 300, (0.5, 0.12)):
+        text ("Answer" if mode == "math" else "Recognized text") color "#b9d3e8" size 22
+        text result.replace("{", "{{") substitute False color "#eff8ff" size (48 if mode == "math" else 24) xmaximum 480
+        hbox:
+            spacing 6
+            textbutton "Scan again" style "keyquest_deck_accent" action Function(_keyquest_ocr_begin, mode, region, "show")
+            textbutton "Close" style "keyquest_deck_key" action Hide("_keyquest_ocr_result")
 
 screen _keyquest_ocr_capture():
     timer 0.20 action Function(_keyquest_ocr_capture_frame)
@@ -475,10 +466,7 @@ screen _keyquest_ocr_capture():
 screen _keyquest_ocr_wait():
     zorder 995
     timer 0.15 repeat True action Function(_keyquest_ocr_poll, _update_screens=False)
-    frame:
-        align (0.98, 0.05)
-        background Frame("keyquest_panel.png", 24, 24)
-        padding (12, 8)
+    use _keyquest_floating("ocr-wait", "OCR scan", 385, 135, (0.98, 0.05)):
         hbox:
             spacing 10
             text "Reading screen…" color "#eff8ff" size 20 yalign 0.5
@@ -488,11 +476,11 @@ screen _keyquest_repeat_runner():
     zorder 995
     if _keyquest_repeat_job is not None:
         $ interval = _keyquest_repeat_job[2]
-        hbox:
-            align (0.98, 0.04)
-            spacing 6
-            textbutton "Edit keys" style "keyquest_deck_key" action Function(_keyquest_edit_repeat)
-            textbutton "Stop repeat" style "keyquest_deck_key" action Function(_keyquest_ocr_reset)
+        use _keyquest_floating("repeat-runner", "Repeating keys", 420, 135, (0.98, 0.04)):
+            hbox:
+                spacing 6
+                textbutton "Edit keys" style "keyquest_deck_key" action Function(_keyquest_edit_repeat)
+                textbutton "Stop repeat" style "keyquest_deck_key" action Function(_keyquest_ocr_reset)
         timer interval repeat True modal True action Function(_keyquest_repeat_press, _update_screens=False)
 
 screen _keyquest_live_ocr():
@@ -501,15 +489,12 @@ screen _keyquest_live_ocr():
     timer 0.1 repeat True action Function(_keyquest_watch_tick, _update_screens=False)
     if live.watch == "keys":
         timer live.repeat_settings[2] repeat True action Function(_keyquest_watch_press, _update_screens=False)
-    frame:
-        align (0.98, 0.04)
-        background Frame("keyquest_panel.png", 24, 24)
-        padding (12, 8)
+    use _keyquest_floating("ocr-live", "Live OCR", 435, 160, (0.98, 0.04)):
         hbox:
             spacing 10
             if live.watch_value is not None:
                 $ caption = _keyquest_sequence_label(live.watch_value) if live.watch == "keys" else "Answer  " + live.watch_value
-                text caption color "#eff8ff" size 22 yalign 0.5 xmaximum 365
+                text caption color "#eff8ff" size 22 yalign 0.5 xmaximum 270
             else:
                 text "Watching…" color "#b9d3e8" size 20 yalign 0.5
             textbutton "Stop OCR" style "keyquest_deck_key" action Function(_keyquest_ocr_reset)

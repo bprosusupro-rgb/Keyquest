@@ -80,56 +80,46 @@ init python:
 screen _keyquest_automation(initial_mode="macro"):
     default mode = initial_mode
     zorder 993
-    frame:
-        align (0.5, 0.4)
-        at Transform(zoom=min(1.0, config.screen_width / 740.0, config.screen_height / 560.0))
-        background Frame("keyquest_panel.png", 24, 24)
-        padding (20, 18)
-        vbox:
-            spacing 9
-            text "Automation" color "#eff8ff" size 30
+    use _keyquest_floating("automation", "Automation", 710, 515, (0.5, 0.4)):
+        hbox:
+            spacing 8
+            textbutton "Macro writer" style "keyquest_key" action SetScreenVariable("mode", "macro")
+            textbutton "Auto-clicker" style "keyquest_key" action SetScreenVariable("mode", "click")
+            textbutton "Close" style "keyquest_key" action Hide("_keyquest_automation")
+        if mode == "macro":
+            $ sequence = "  ".join("Wait" if key == "wait" else key.title() for key in persistent.keyquest_macro)
+            text (sequence or "No steps yet.") color "#eff8ff" size 22 xmaximum 630
+            for row in ("1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm"):
+                hbox:
+                    spacing 5
+                    for value in row:
+                        textbutton value.upper() style "keyquest_key" action Function(_keyquest_add_step, value)
             hbox:
-                spacing 8
-                textbutton "Macro writer" style "keyquest_key" action SetScreenVariable("mode", "macro")
-                textbutton "Auto-clicker" style "keyquest_key" action SetScreenVariable("mode", "click")
-                textbutton "Close" style "keyquest_key" action Hide("_keyquest_automation")
-            if mode == "macro":
-                $ sequence = "  ".join("Wait" if key == "wait" else key.title() for key in persistent.keyquest_macro)
-                text (sequence or "No steps yet.") color "#eff8ff" size 22 xmaximum 630
-                for row in ("1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm"):
-                    hbox:
-                        spacing 5
-                        for value in row:
-                            textbutton value.upper() style "keyquest_key" action Function(_keyquest_add_step, value)
-                hbox:
-                    spacing 6
-                    textbutton "Space" style "keyquest_key" action Function(_keyquest_add_step, "SPACE")
-                    textbutton "Wait" style "keyquest_key" action Function(_keyquest_add_step, "wait")
-                    textbutton "Undo" style "keyquest_key" action SetField(persistent, "keyquest_macro", persistent.keyquest_macro[:-1])
-                    textbutton "Clear" style "keyquest_key" action SetField(persistent, "keyquest_macro", ())
-                hbox:
-                    spacing 6
-                    textbutton ("%.2f s / step" % persistent.keyquest_macro_delay) style "keyquest_key" action SetField(persistent, "keyquest_macro_delay", _keyquest_cycle(persistent.keyquest_macro_delay, (0.1, 0.2, 0.5, 1.0)))
-                    textbutton ("%d repeats" % persistent.keyquest_macro_loops) style "keyquest_key" action SetField(persistent, "keyquest_macro_loops", _keyquest_cycle(persistent.keyquest_macro_loops, (1, 3, 10)))
-                    textbutton "Start" style "keyquest_key" sensitive bool(persistent.keyquest_macro) action Function(_keyquest_begin_task, "macro")
-            else:
-                $ target_text = "No target selected" if _keyquest_click_point is None else "Target: %d, %d" % _keyquest_click_point
-                text target_text color "#eff8ff" size 22
-                hbox:
-                    spacing 6
-                    textbutton "Pick target" style "keyquest_key" action [Hide("_keyquest_automation"), Show("_keyquest_pick_target")]
-                    textbutton ("%.2f s / click" % persistent.keyquest_click_delay) style "keyquest_key" action SetField(persistent, "keyquest_click_delay", _keyquest_cycle(persistent.keyquest_click_delay, (0.2, 0.5, 1.0, 2.0)))
-                    textbutton ("%d clicks" % persistent.keyquest_click_count) style "keyquest_key" action SetField(persistent, "keyquest_click_count", _keyquest_cycle(persistent.keyquest_click_count, (5, 10, 25, 50)))
-                textbutton "Start" style "keyquest_key" sensitive (_keyquest_click_point is not None) action Function(_keyquest_begin_task, "click")
+                spacing 6
+                textbutton "Space" style "keyquest_key" action Function(_keyquest_add_step, "SPACE")
+                textbutton "Wait" style "keyquest_key" action Function(_keyquest_add_step, "wait")
+                textbutton "Undo" style "keyquest_key" action SetField(persistent, "keyquest_macro", persistent.keyquest_macro[:-1])
+                textbutton "Clear" style "keyquest_key" action SetField(persistent, "keyquest_macro", ())
+            hbox:
+                spacing 6
+                textbutton ("%.2f s / step" % persistent.keyquest_macro_delay) style "keyquest_key" action SetField(persistent, "keyquest_macro_delay", _keyquest_cycle(persistent.keyquest_macro_delay, (0.1, 0.2, 0.5, 1.0)))
+                textbutton ("%d repeats" % persistent.keyquest_macro_loops) style "keyquest_key" action SetField(persistent, "keyquest_macro_loops", _keyquest_cycle(persistent.keyquest_macro_loops, (1, 3, 10)))
+                textbutton "Start" style "keyquest_key" sensitive bool(persistent.keyquest_macro) action Function(_keyquest_begin_task, "macro")
+        else:
+            $ target_text = "No target selected" if _keyquest_click_point is None else "Target: %d, %d" % _keyquest_click_point
+            text target_text color "#eff8ff" size 22
+            hbox:
+                spacing 6
+                textbutton "Pick target" style "keyquest_key" action [Hide("_keyquest_automation"), Show("_keyquest_pick_target")]
+                textbutton ("%.2f s / click" % persistent.keyquest_click_delay) style "keyquest_key" action SetField(persistent, "keyquest_click_delay", _keyquest_cycle(persistent.keyquest_click_delay, (0.2, 0.5, 1.0, 2.0)))
+                textbutton ("%d clicks" % persistent.keyquest_click_count) style "keyquest_key" action SetField(persistent, "keyquest_click_count", _keyquest_cycle(persistent.keyquest_click_count, (5, 10, 25, 50)))
+            textbutton "Start" style "keyquest_key" sensitive (_keyquest_click_point is not None) action Function(_keyquest_begin_task, "click")
 
 screen _keyquest_pick_target():
     zorder 994
     modal True
     add _KeyquestTarget()
-    frame:
-        align (0.5, 0.05)
-        background Frame("keyquest_panel.png", 24, 24)
-        padding (14, 10)
+    use _keyquest_floating("click-target", "Pick a target", 535, 140, (0.5, 0.05)):
         hbox:
             spacing 12
             text "Tap the point you want to repeat." color "#eff8ff" size 22 yalign 0.5
@@ -139,5 +129,6 @@ screen _keyquest_runner():
     zorder 995
     if _keyquest_task is not None:
         $ stop_x = 0.98 if _keyquest_click_point is None or _keyquest_click_point[0] < config.screen_width / 2 else 0.02
-        textbutton "Stop automation" style "keyquest_key" align (stop_x, 0.04) action Function(_keyquest_stop_task)
+        use _keyquest_floating("automation-runner", "Automation running", 430, 136, (stop_x, 0.04)):
+            textbutton "Stop automation" style "keyquest_key" action Function(_keyquest_stop_task)
         timer _keyquest_task[3] repeat True modal True action Function(_keyquest_tick, _update_screens=False)

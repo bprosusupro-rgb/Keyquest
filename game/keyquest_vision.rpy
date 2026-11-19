@@ -1,6 +1,19 @@
 # Local recognition in the game process. Only screenshot capture touches Ren'Py's renderer.
 
 init python:
+    def _keyquest_ocr_crop(width, height, region):
+        if min(width, height) < 8:
+            return None
+        if region == "top":
+            return (0, 0, width, height // 3)
+        if region == "center":
+            return (width // 10, height // 4, width * 4 // 5, height // 2)
+        if region == "bottom":
+            return (width // 5, height * 17 // 25, width * 3 // 5, height // 4)
+        if region == "race":
+            return (width * 23 // 100, height // 8, width * 54 // 100, height * 3 // 16)
+        return None
+
     class _KeyquestVisionEngine(object):
         def __init__(self, tess, lept, model_directory):
             import ctypes as c
@@ -28,6 +41,9 @@ init python:
             self.box = bind(lept, "boxCreate", pointer, integer, integer, integer, integer)
             self.crop = bind(lept, "pixClipRectangle", pointer, pointer, pointer, pointer)
             self.release_box = bind(lept, "boxDestroy", None, c.POINTER(pointer))
+            self.rgb = bind(lept, "pixConvertTo32", pointer, pointer)
+            self.brightness = bind(lept, "pixConvertRGBToGrayMinMax", pointer, pointer, integer)
+            self.threshold = bind(lept, "pixThresholdToBinary", pointer, pointer, integer)
             self.release_image = bind(lept, "pixDestroy", None, c.POINTER(pointer))
             self.engine = create()
             if not self.engine:
@@ -42,13 +58,10 @@ init python:
             if not image:
                 raise ValueError("Could not decode game frame")
             cropped = None
+            filtered = None
             try:
                 width, height = self.width(image), self.height(image)
-                area = None
-                if region == "top" and height >= 3:
-                    area = (0, 0, width, height // 3)
-                elif region == "center" and width >= 5 and height >= 5:
-                    area = (width // 10, height // 4, width * 4 // 5, height // 2)
+                area = _keyquest_ocr_crop(width, height, region)
                 if area is not None:
                     box = self.box(*area)
                     if not box:
@@ -59,8 +72,12 @@ init python:
                         self.release_box(self.ctypes.byref(self.ctypes.c_void_p(box)))
                     if not cropped:
                         raise ValueError("Could not crop game frame")
-                self.mode(self.engine, 3 if mode == "text" else 11)
-                self.set_image(self.engine, cropped or image)
+                source = cropped or image
+                race = region == "race" and mode == "keys"
+                if race:
+                    filtered = self.race_text_mask(source)
+                self.mode(self.engine, 7 if race else (3 if mode == "text" else 11))
+                self.set_image(self.engine, filtered or source)
                 text = self.text(self.engine)
                 if not text:
                     return u""
@@ -70,9 +87,23 @@ init python:
                     self.release_text(text)
             finally:
                 self.clear(self.engine)
-                if cropped:
-                    self.release_image(self.ctypes.byref(self.ctypes.c_void_p(cropped)))
-                self.release_image(self.ctypes.byref(self.ctypes.c_void_p(image)))
+                for pix in (filtered, cropped, image):
+                    if pix:
+                        self.release_image(self.ctypes.byref(self.ctypes.c_void_p(pix)))
+
+        def race_text_mask(self, image):
+            rgb = self.rgb(image)
+            if not rgb:
+                return None
+            gray = None
+            try:
+                # Keep the dark letter outlines and suppress the saturated track and white stripes.
+                gray = self.brightness(rgb, 2)  # L_CHOOSE_MAX
+                return self.threshold(gray, 100) if gray else None
+            finally:
+                for pix in (gray, rgb):
+                    if pix:
+                        self.release_image(self.ctypes.byref(self.ctypes.c_void_p(pix)))
 
     class _KeyquestVisionWorker(object):
         engine = None

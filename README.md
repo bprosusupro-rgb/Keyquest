@@ -11,7 +11,7 @@ A standalone Android app that puts a keyboard inside a compatible Ren’Py game.
 
 ### Floating keyboard and updates
 
-Hold **Drag to move** along the top of the keyboard, then move your pointer and release. The game remembers where you leave the keyboard. **Settings** includes **Reset position**, docking, compact mode, and theme options.
+Hold **Drag to move** in a panel’s title bar, then move your pointer and release. The keyboard, OCR settings, OCR results, live OCR, repeat controls, macros, auto-clicker, and values editor each remember their own position. Drag the grip beside the **Keyboard** launcher to move it, or tap **Keyboard** to open it. **Keyboard → Settings → Reset positions** restores the default locations. Settings also include keyboard docking, compact mode, and theme options.
 
 To update a patched game, choose its existing APK file or select the installed patched game. Studio detects it, loads the existing add-on selections, and offers **Update keyboard APK**. The update replaces only the known Keyquest scripts and artwork and applies the current add-on choices. Save the new APK to Downloads and install it as an update. In-place installation requires the same Android signing key, which normally means using the same Studio installation on the same headset. Keep your original APK and a save backup.
 
@@ -36,10 +36,10 @@ Automation uses Ren’Py/SDL2 events inside the rebuilt game. It is intended for
 Enable **Include Smart Input** when building or updating the APK. In the game, open **Keyboard → OCR**. The rebuilt game includes an offline Tesseract neural OCR model. Keep Studio installed for the one-shot fallback on older runtimes.
 
 - **Copy text** reads English on the game screen. **Show result** displays it in the game, and **Type in game** sends it to the active text field.
-- **Solve math** reads one arithmetic expression and offers the same output options. It supports addition, subtraction, multiplication, division, and parentheses. Choose **Top** or **Center** if unrelated text makes it hard to find the problem.
+- **Solve math** reads one arithmetic expression and offers the same output options. It supports addition, subtraction, multiplication, division, and parentheses. Choose **Bottom** for math problems displayed under the answer choices, or another area that contains the equation.
 - **Repeat keys** runs one key or several in the order you enter them. Set the interval and loop count, then select **Start**. **Read keys** can fill the sequence from a visible prompt such as “Press S and I rapidly.” Check the detected keys before starting. When the prompt changes, select **Edit keys** to stop the current repeat and scan again or enter different keys. **Stop repeat** ends the run.
 
-**Follow key prompts** recognizes new key cues while the game is open, cycles through the detected keys at the chosen interval, and stops sending keys when no cue is recognized. **Watch for answers** updates the displayed result as visible arithmetic changes. Both live modes scan periodically, work best with a small scan area, and stop after one minute or when you tap **Stop OCR**.
+**Race** focuses OCR on upper-middle prompts such as “Press S rapidly” on a striped race track. **Follow key prompts** recognizes new key cues while the game is open, cycles through the detected keys at the chosen interval, and stops sending keys when no cue is recognized. **Watch for answers** updates the displayed result as visible arithmetic changes. Both live modes scan periodically, work best with a small scan area, and stop after one minute or when you tap **Stop OCR**.
 
 **Scan & show** and **Scan & type** capture one frame after the panel hides. Recognition runs locally in the game process when supported. **Type in game** uses the active game field’s text-input event and respects its character limits. The Android recognition round trip still needs verification on a Quest headset.
 

@@ -34,12 +34,14 @@ public final class OcrActivity extends Activity {
         final Messenger reply;
         final byte[] image;
         final boolean math;
+        final boolean race;
         try {
             reply = Build.VERSION.SDK_INT >= 33
                     ? getIntent().getParcelableExtra("reply", Messenger.class)
                     : getIntent().getParcelableExtra("reply");
             image = getIntent().getByteArrayExtra("image");
             math = getIntent().getBooleanExtra("math", false);
+            race = getIntent().getBooleanExtra("race", false);
             getIntent().replaceExtras((Bundle) null);
         } catch (RuntimeException badExtras) {
             finish();
@@ -57,7 +59,7 @@ public final class OcrActivity extends Activity {
             String result = null;
             String error = null;
             try {
-                result = recognize(image, math);
+                result = recognize(image, math, race);
             } catch (IOException | RuntimeException | LinkageError failure) {
                 android.util.Log.e("KeyquestOCR", "OCR could not process the supplied frame", failure);
                 error = "OCR could not read this frame.";
@@ -70,7 +72,7 @@ public final class OcrActivity extends Activity {
         });
     }
 
-    private String recognize(byte[] image, boolean math) throws IOException {
+    private String recognize(byte[] image, boolean math, boolean race) throws IOException {
         BitmapFactory.Options bounds = new BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
         BitmapFactory.decodeByteArray(image, 0, image.length, bounds);
@@ -82,23 +84,43 @@ public final class OcrActivity extends Activity {
 
         Bitmap bitmap = BitmapFactory.decodeByteArray(image, 0, image.length);
         if (bitmap == null) throw new IOException("Frame could not be decoded");
+        Bitmap source = bitmap;
         try {
+            if (race) source = raceTextMask(bitmap);
             TessBaseAPI engine = new TessBaseAPI();
             try {
                 if (!engine.init(languageData().getAbsolutePath(), "eng")) {
                     throw new IOException("Tesseract could not load English language data");
                 }
-                engine.setPageSegMode(math ? TessBaseAPI.PageSegMode.PSM_SPARSE_TEXT
-                        : TessBaseAPI.PageSegMode.PSM_AUTO);
-                engine.setImage(bitmap);
+                int segmentation = TessBaseAPI.PageSegMode.PSM_AUTO;
+                if (race) segmentation = TessBaseAPI.PageSegMode.PSM_SINGLE_LINE;
+                else if (math) segmentation = TessBaseAPI.PageSegMode.PSM_SPARSE_TEXT;
+                engine.setPageSegMode(segmentation);
+                engine.setImage(source);
                 String text = engine.getUTF8Text();
                 return text == null ? "" : text.substring(0, Math.min(text.length(), 4096)).trim();
             } finally {
                 engine.recycle();
             }
         } finally {
+            if (source != bitmap) source.recycle();
             bitmap.recycle();
         }
+    }
+
+    private static Bitmap raceTextMask(Bitmap image) {
+        int width = image.getWidth();
+        int height = image.getHeight();
+        int[] pixels = new int[width * height];
+        image.getPixels(pixels, 0, width, 0, 0, width, height);
+        for (int i = 0; i < pixels.length; i++) {
+            int color = pixels[i];
+            int red = (color >>> 16) & 255;
+            int green = (color >>> 8) & 255;
+            int blue = color & 255;
+            pixels[i] = Math.max(red, Math.max(green, blue)) < 100 ? 0xff000000 : 0xffffffff;
+        }
+        return Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888);
     }
 
     private File languageData() throws IOException {

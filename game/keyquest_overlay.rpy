@@ -14,12 +14,30 @@ init python:
         if drags:
             persistent.keyquest_position = (max(0, int(drags[0].x)), max(0, int(drags[0].y)))
 
+    def _keyquest_float_dragged(drags, drop):
+        if drags:
+            drag = drags[0]
+            positions = dict(persistent.keyquest_panel_positions)
+            # Relative free space keeps the panel visible if its contents change size.
+            x = float(drag.x) / max(1, drag.parent_width - drag.w)
+            y = float(drag.y) / max(1, drag.parent_height - drag.h)
+            positions[drag.drag_name] = (min(1.0, max(0.0, x)), min(1.0, max(0.0, y)))
+            persistent.keyquest_panel_positions = positions
+            renpy.restart_interaction()
+
+    def _keyquest_reset_panels():
+        persistent.keyquest_position = None
+        persistent.keyquest_panel_positions = {}
+        renpy.hide_screen("_keyquest_keyboard")
+        renpy.show_screen("_keyquest_keyboard")
+
     _keyquest_screens = getattr(config, "always_shown_screens", config.overlay_screens)
     if "_keyquest_launcher" not in _keyquest_screens:
         _keyquest_screens.append("_keyquest_launcher")
 
 default persistent.keyquest_top = False
 default persistent.keyquest_position = None
+default persistent.keyquest_panel_positions = {}
 default persistent.keyquest_compact = False
 default persistent.keyquest_light_accent = False
 default persistent.keyquest_quick_one = "s"
@@ -39,21 +57,59 @@ style keyquest_key_text is button_text:
 screen _keyquest_launcher():
     zorder 990
     $ visibility = 0.0 if renpy.get_screen("_keyquest_ocr_capture") else 1.0
-    button:
-        at Transform(alpha=visibility)
-        sensitive bool(visibility)
-        align (0.98, 0.95)
-        background Frame("keyquest_panel.png", 24, 24)
-        hover_background Frame("keyquest_panel_mint.png", 24, 24)
-        padding (8, 6)
-        action ToggleScreen("_keyquest_keyboard")
-        alt "Keyquest keyboard"
-        alternate (ToggleScreen("_keyquest_values") if renpy.has_screen("_keyquest_values") else NullAction())
-        hbox:
-            spacing 7
-            if renpy.loadable("keyquest_logo.png"):
-                add "keyquest_logo.png" xysize (48, 48) yalign 0.5
-            text "Keyboard" color "#eff8ff" size 22 yalign 0.5
+    if visibility:
+        $ position = persistent.keyquest_panel_positions.get("keyquest-launcher")
+        draggroup:
+            drag:
+                drag_name "keyquest-launcher"
+                drag_offscreen False
+                droppable False
+                dragged _keyquest_float_dragged
+                drag_handle (0, 0, 46, 1.0)
+                align ((0.98, 0.95) if position is None else position)
+                frame:
+                    background Frame("keyquest_panel.png", 24, 24)
+                    padding (4, 4)
+                    hbox:
+                        spacing 2
+                        text "⠿" color "#b9d3e8" size 28 xsize 40 text_align 0.5 yalign 0.5
+                        button:
+                            background None
+                            hover_background Frame("keyquest_panel_mint.png", 24, 24)
+                            padding (8, 4)
+                            action ToggleScreen("_keyquest_keyboard")
+                            alt "Keyquest keyboard"
+                            alternate (ToggleScreen("_keyquest_values") if renpy.has_screen("_keyquest_values") else NullAction())
+                            hbox:
+                                spacing 7
+                                if renpy.loadable("keyquest_logo.png"):
+                                    add "keyquest_logo.png" xysize (48, 48) yalign 0.5
+                                text "Keyboard" color "#eff8ff" size 22 yalign 0.5
+
+screen _keyquest_floating(panel, title, width, height, alignment=(0.5, 0.25), light=False):
+    $ scale = min(1.0, config.screen_width / float(width + 20), config.screen_height / float(height + 20))
+    $ drag_id = "keyquest-" + panel
+    $ position = persistent.keyquest_panel_positions.get(drag_id)
+    draggroup:
+        drag:
+            drag_name drag_id
+            droppable False
+            drag_offscreen False
+            dragged _keyquest_float_dragged
+            drag_handle (0, 0, 1.0, int(49 * scale))
+            align (alignment if position is None else position)
+            frame:
+                xsize width
+                at Transform(zoom=scale)
+                padding (16, 11)
+                background Frame("keyquest_sheet.png" if light else "keyquest_panel.png", 24, 24)
+                vbox:
+                    spacing 8
+                    fixed:
+                        ysize 35
+                        text title color ("#152538" if light else "#eff8ff") size 24 align (0.0, 0.5)
+                        text "⠿  Drag to move" color ("#405264" if light else "#b9d3e8") size 18 align (1.0, 0.5)
+                    transclude
 
 style keyquest_deck_key is keyquest_key:
     background Frame("keyquest_panel.png", 16, 16)
@@ -121,7 +177,7 @@ screen _keyquest_keyboard():
                     if settings_open:
                         hbox:
                             spacing 6
-                            textbutton "Reset position" style "keyquest_deck_key" action SetField(persistent, "keyquest_position", None)
+                            textbutton "Reset positions" style "keyquest_deck_key" action Function(_keyquest_reset_panels)
                             textbutton ("Dock bottom" if persistent.keyquest_top else "Dock top") style "keyquest_deck_key" action [ToggleField(persistent, "keyquest_top"), SetField(persistent, "keyquest_position", None)]
                             textbutton ("Full size" if persistent.keyquest_compact else "Compact") style "keyquest_deck_key" action ToggleField(persistent, "keyquest_compact")
                             textbutton "Theme" style "keyquest_deck_key" action ToggleField(persistent, "keyquest_light_accent")
