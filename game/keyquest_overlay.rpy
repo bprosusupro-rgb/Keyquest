@@ -61,8 +61,8 @@ style keyquest_key_text is button_text:
 
 screen _keyquest_launcher():
     zorder 990
-    $ visibility = 0.0 if renpy.get_screen("_keyquest_ocr_capture") else 1.0
-    if visibility:
+    $ tile_run = renpy.has_screen("_keyquest_minigame_run") and _keyquest_tile_run_active()
+    if not tile_run and not renpy.get_screen("_keyquest_ocr_capture"):
         $ position = persistent.keyquest_panel_positions.get("keyquest-launcher")
         draggroup:
             drag:

@@ -5,6 +5,9 @@ default _test_tiles = (1, 2, 3, 4, 5, 6, 7, 0, 8)
 
 init 999 python:
     assert _keyquest_color_layout(((214, 0, 0), (0, 0, 194), (1, 207, 0), (215, 207, 0)))
+    board = (0.30, 0.31, 0.95, 0.94)
+    assert _keyquest_tile_stop_position(board, 1280, 720, 112, 48) == (1163, 5)
+    assert _keyquest_tile_stop_position((0.0, 0.0, 1.0, 1.0), 1280, 720, 112, 48) is None
     _test_goal = (1, 2, 3, 4, 5, 6, 7, 8, 0)
     _test_hard = (8, 6, 7, 2, 5, 4, 3, 0, 1)
     steps = _keyquest_tile_moves(_test_hard, _test_goal)
@@ -60,7 +63,7 @@ init 999 python:
         renpy.store._test_tiles = _keyquest_slide_tile(_test_tiles, index)
 
 label start:
-    $ persistent.keyquest_minigame_boards = {"colors": (0.17, 0.17, 0.64, 0.61), "tiles": (0.17, 0.17, 0.64, 0.61)}
+    $ persistent.keyquest_minigame_boards = {"colors": (0.17, 0.17, 0.64, 0.61), "tiles": (0.30, 0.31, 0.95, 0.94)}
     $ _keyquest_minigame.mode = "colors"
     show screen _kq_test_colors
     show screen _keyquest_minigames
@@ -84,6 +87,10 @@ label start:
         tiles, edges, signatures = _keyquest_tile_scan(_keyquest_frame(), _keyquest_board())
         _keyquest_minigame.tiles = tiles
         _keyquest_minigame.signatures = signatures
+        # A pointer or animation can temporarily light up two blank-slot samples.
+        blank_points = ((219, 210, 211), (200, 220, 207)) + signatures[0][2:]
+        samples = tuple(signatures[tile] if tile else blank_points for tile in tiles)
+        assert _keyquest_observe_tiles(samples, signatures, tiles, None) == tiles
         target = list(tiles)
         target[7], target[8] = target[8], target[7]
         _keyquest_minigame.moves = _keyquest_tile_moves(tiles, tuple(target))
@@ -153,6 +160,6 @@ screen _kq_test_tiles(side=3):
         button:
             pos point
             anchor (0.5, 0.5)
-            xysize (int(config.screen_width * 0.47 / side), int(config.screen_height * 0.44 / side))
+            xysize (int(config.screen_width * (bounds[2] - bounds[0]) / side), int(config.screen_height * (bounds[3] - bounds[1]) / side))
             background Solid(palette[tile])
             action Function(_test_slide, index, side)

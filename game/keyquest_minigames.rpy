@@ -161,6 +161,22 @@ init python:
         if len(state.sequence) < 32:
             state.sequence += (index,)
 
+    def _keyquest_tile_run_active():
+        return (_keyquest_minigame.job or "").startswith("tile-")
+
+    def _keyquest_tile_stop_position(board, screen_width, screen_height, width, height):
+        left, top, right, bottom = board
+        gap = 5
+        if screen_height * (1 - bottom) >= height + 2 * gap:
+            return (screen_width - width - gap, screen_height - height - gap)
+        if screen_height * top >= height + 2 * gap:
+            return (screen_width - width - gap, gap)
+        if screen_width * (1 - right) >= width + 2 * gap:
+            return (screen_width - width - gap, screen_height - height - gap)
+        if screen_width * left >= width + 2 * gap:
+            return (gap, screen_height - height - gap)
+        return None
+
     def _keyquest_begin_minigame(job):
         state = _keyquest_minigame
         _keyquest_stop_minigame()
@@ -179,6 +195,9 @@ init python:
             for step in state.moves:
                 target = _keyquest_slide_tile(target, step)
             state.tile_target = target
+        if _keyquest_tile_run_active():
+            for panel in ("_keyquest_keyboard", "_keyquest_values", "_keyquest_automation", "_keyquest_pick_target"):
+                renpy.hide_screen(panel)
         if job == "tile-scan":
             state.moves = ()
             state.tile_goal = ()
@@ -478,7 +497,7 @@ init python:
         return sum(distances[:-2]) / float(len(distances) - 2)
 
     def _keyquest_observe_tiles(samples, signatures, current, expected):
-        empty = [index for index, pixels in enumerate(samples) if sum(max(p) <= 31 for p in pixels) >= 8]
+        empty = [index for index, pixels in enumerate(samples) if sum(max(p) <= 31 for p in pixels) >= 7]
         if len(empty) != 1:
             return None
         blank = empty[0]
@@ -549,17 +568,19 @@ init python:
             if stable and not retried:
                 _keyquest_send_tile_move(state, now, retry=True)
             elif stable:
-                _keyquest_show_minigame("The tile did not respond. Move the panel clear, then try Play again.")
+                _keyquest_show_minigame("The tile did not respond. Tap Play to retry.")
             elif now >= until + 2.0:
-                message = "Last move sent. Check the game result." if len(state.moves) == 1 else "The board could not be confirmed. Move the panel clear and scan again."
-                _keyquest_show_minigame(message, clear_moves=True)
+                final_move = len(state.moves) == 1
+                message = ("Last move sent. Check the game result." if final_move
+                           else "The board could not be confirmed. Tap Play to check it again, or scan a new board.")
+                _keyquest_show_minigame(message, clear_moves=final_move)
         elif stable:
             state.tile_wait_until = 0.0
             _keyquest_send_tile_move(state, now)
         elif not state.tile_wait_until:
             state.tile_wait_until = now + 3.0
         elif now >= state.tile_wait_until:
-            _keyquest_show_minigame("The board is hard to read. Move the panel clear, then try Play again.")
+            _keyquest_show_minigame("The board is hard to read. Check the board corners or tap Play to retry.")
 
     def _keyquest_minigame_tick():
         state = _keyquest_minigame
@@ -710,10 +731,17 @@ screen _keyquest_minigame_run():
     zorder 997
     $ helper = _keyquest_minigame
     timer (0.075 if helper.job == "watch" else 0.14) repeat True action Function(_keyquest_minigame_tick, _update_screens=False)
-    use _keyquest_floating("minigame-run", "Minigame helper", 420, 180, (0.97, 0.98)):
-        if helper.job == "watch":
-            text ("%d flashes recorded" % len(helper.sequence)) color "#eff8ff" size 21
-            textbutton "Finish recording" style "keyquest_deck_accent" action Function(_keyquest_show_minigame)
-        else:
-            text ("Matching tiles…" if helper.job == "tile-scan" else "Playing moves…") color "#eff8ff" size 21
-            textbutton "Stop" style "keyquest_deck_key" action Function(_keyquest_show_minigame, "Stopped.")
+    if _keyquest_tile_run_active():
+        $ size = (112, 48)
+        $ position = _keyquest_tile_stop_position(_keyquest_board(), config.screen_width, config.screen_height, *size)
+        key "game_menu" action Function(_keyquest_show_minigame, "Stopped.")
+        if position is not None:
+            textbutton "Stop" style "keyquest_deck_key" pos position xysize size action Function(_keyquest_show_minigame, "Stopped.")
+    else:
+        use _keyquest_floating("minigame-run", "Minigame helper", 420, 180, (0.97, 0.98)):
+            if helper.job == "watch":
+                text ("%d flashes recorded" % len(helper.sequence)) color "#eff8ff" size 21
+                textbutton "Finish recording" style "keyquest_deck_accent" action Function(_keyquest_show_minigame)
+            else:
+                text "Playing sequence…" color "#eff8ff" size 21
+                textbutton "Stop" style "keyquest_deck_key" action Function(_keyquest_show_minigame, "Stopped.")
