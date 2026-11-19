@@ -21,6 +21,7 @@ unzip -p "$TESSERACT_AAR" classes.jar > "$scratch/tesseract.jar"
 for library in libjpeg.so libleptonica.so libpngx.so libtesseract.so; do
     unzip -p "$TESSERACT_AAR" "jni/arm64-v8a/$library" > "$scratch/lib/arm64-v8a/$library"
 done
+(cd "$scratch" && zip -q -j assets/ocr/vision.zip lib/arm64-v8a/*.so assets/ocr/eng.traineddata assets/ocr-licenses/*.txt)
 "$BUILD_TOOLS/aapt2" compile --dir "$project/res" -o "$scratch/resources.zip"
 "$BUILD_TOOLS/aapt2" link -I "$ANDROID_JAR" --manifest "$project/AndroidManifest.xml" \
     -A "$scratch/assets" -o "$scratch/unsigned.apk" "$scratch/resources.zip"

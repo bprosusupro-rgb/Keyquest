@@ -14,6 +14,13 @@ init python:
         region = "full"
         destination = "show"
         repeat_settings = ((), 3, 0.15)
+        native = False
+        activity = None
+        watch = None
+        watch_value = None
+        watch_index = 0
+        watch_confirmed = 0.0
+        next_scan = 0.0
 
     _keyquest_scan_state = _KeyquestScanState()
 
@@ -76,7 +83,7 @@ init python:
             cue = _kq_re.split(r"\s+(?:rapidly|quickly|repeatedly|now|to)\b", match.group(1), 1, flags=_kq_re.I)[0]
             cue = cue.strip(" .!:").lower().replace(u"→", ",")
             tokens = _kq_re.split(r"\s*(?:[,/+&]|\band\b|\bthen\b)\s*|\s+", cue)
-            tokens = tuple({"space": "SPACE", "enter": "RETURN"}.get(token, token) for token in tokens if token)
+            tokens = tuple({"space": "SPACE", "enter": "RETURN", "|": "i"}.get(token, token) for token in tokens if token)
             if 0 < len(tokens) <= 12 and all(
                     token in ("SPACE", "RETURN") or _kq_re.match(r"^[a-z0-9]\Z", token) for token in tokens):
                 cues.add(tokens)
@@ -87,8 +94,12 @@ init python:
         state.request += 1
         state.response = None
         state.bridge = None
+        state.native = False
+        state.activity = None
+        state.watch = None
+        state.watch_value = None
         renpy.store._keyquest_repeat_job = None
-        for panel in ("_keyquest_ocr_capture", "_keyquest_ocr_wait", "_keyquest_ocr_result", "_keyquest_repeat_runner"):
+        for panel in ("_keyquest_ocr_capture", "_keyquest_ocr_wait", "_keyquest_ocr_result", "_keyquest_repeat_runner", "_keyquest_live_ocr"):
             renpy.hide_screen(panel)
 
     config.after_load_callbacks.append(_keyquest_ocr_reset)
@@ -116,9 +127,37 @@ init python:
                           initial_repeat=(sequence if keys is None else keys, loops, interval), status=message)
         renpy.restart_interaction()
 
+    def _keyquest_submit_local(mode, region):
+        from jnius import autoclass
+
+        state = _keyquest_scan_state
+        if state.activity is None:
+            state.activity = autoclass("org.renpy.android.PythonSDLActivity").mActivity
+        if not state.activity.hasWindowFocus() or _keyquest_vision.busy:
+            return False
+        size = _keyquest_capture_size(960 if state.watch else 1440)
+        frame = renpy.screenshot_to_bytes(size)
+        if not frame:
+            return False
+        return _keyquest_vision.start(state.request, frame, region, mode,
+                                      state.activity.getCodeCacheDir().getAbsolutePath())
+
+    def _keyquest_capture_size(maximum):
+        width, height = config.screen_width, config.screen_height
+        scale = min(1.0, float(maximum) / max(width, height), (1550000.0 / (width * height)) ** 0.5)
+        return (max(1, int(width * scale)), max(1, int(height * scale)))
+
     def _keyquest_ocr_capture_frame():
         state = _keyquest_scan_state
         renpy.hide_screen("_keyquest_ocr_capture")
+        if not _keyquest_vision.unavailable and renpy.loadable("keyquest_vision.zip"):
+            try:
+                state.native = _keyquest_submit_local(state.mode, state.region)
+            except Exception as error:
+                renpy.log("Keyquest local OCR: " + repr(error))
+            if state.native:
+                renpy.show_screen("_keyquest_ocr_wait")
+                return
         try:
             from jnius import autoclass, PythonJavaClass, java_method
 
@@ -140,10 +179,7 @@ init python:
             messenger = autoclass("android.os.Messenger")(handler)
             state.bridge = (callback, handler, messenger, activity)
 
-            scale = min(1.0, 1440.0 / max(config.screen_width, config.screen_height),
-                        (1550000.0 / (config.screen_width * config.screen_height)) ** 0.5)
-            size = (max(1, int(config.screen_width * scale)), max(1, int(config.screen_height * scale)))
-            frame = renpy.screenshot_to_bytes(size)
+            frame = renpy.screenshot_to_bytes(_keyquest_capture_size(1440))
             if not frame:
                 raise ValueError("No game frame")
             bitmap = autoclass("android.graphics.BitmapFactory").decodeByteArray(frame, 0, len(frame))
@@ -191,14 +227,23 @@ init python:
         if _kq_time.time() - state.started > 20:
             _keyquest_ocr_return("The scan timed out. Try a smaller scan area.")
             return
-        response = state.response
+        response = _keyquest_vision.response if state.native else state.response
         if response is None or response[0] != state.request:
             return
-        # Android can deliver the result before the game's own window is active again.
-        if (state.destination == "type" and state.mode != "keys"
-                and state.bridge is not None and not state.bridge[3].hasWindowFocus()):
-            return
         _, text, error = response
+        if state.native and error:
+            # Older game runtimes can still use Studio for a one-shot scan.
+            renpy.log("Keyquest local OCR: " + error)
+            state.native = False
+            renpy.hide_screen("_keyquest_ocr_wait")
+            renpy.show_screen("_keyquest_ocr_capture")
+            renpy.restart_interaction()
+            return
+        # A result can arrive before Android restores the game's input focus.
+        activity = state.activity if state.native else (state.bridge[3] if state.bridge else None)
+        if (state.destination == "type" and state.mode != "keys"
+                and activity is not None and not activity.hasWindowFocus()):
+            return
         if error or not text:
             _keyquest_ocr_return(error or "No text found. Try a smaller scan area.")
             return
@@ -226,6 +271,72 @@ init python:
         except Exception as failure:
             renpy.log("Keyquest text input: " + repr(failure))
             _keyquest_ocr_return("The game could not accept this scan as text.")
+
+    def _keyquest_watch_start(mode, region, repeat_settings=((), 3, 0.15)):
+        _keyquest_ocr_reset()
+        state = _keyquest_scan_state
+        state.mode = mode
+        state.region = region
+        state.destination = "show"
+        state.repeat_settings = repeat_settings
+        if not renpy.android or not renpy.loadable("keyquest_vision.zip") or _keyquest_vision.unavailable:
+            _keyquest_ocr_return("Live OCR is unavailable here. One-shot scanning is still available on Android.")
+            return
+        state.watch = mode
+        state.started = _kq_time.time()
+        state.watch_confirmed = 0.0
+        state.watch_index = 0
+        state.next_scan = state.started + 0.25
+        renpy.hide_screen("_keyquest_smart_input")
+        renpy.show_screen("_keyquest_live_ocr")
+
+    def _keyquest_watch_apply(text, now):
+        state = _keyquest_scan_state
+        value = _keyquest_read_key_cue(text) if state.watch == "keys" else _keyquest_math_answer(text)
+        state.watch_confirmed = now
+        if value != state.watch_value:
+            state.watch_value = value
+            state.watch_index = 0
+            renpy.restart_interaction()
+
+    def _keyquest_watch_tick():
+        state = _keyquest_scan_state
+        if state.watch is None:
+            return
+        now = _kq_time.time()
+        if now - state.started > 60:
+            _keyquest_ocr_return("Live OCR ended after one minute.")
+            return
+        response = _keyquest_vision.response
+        if response is not None and response[0] == state.request:
+            _keyquest_vision.response = None
+            _, text, error = response
+            if error:
+                renpy.log("Keyquest live OCR: " + error)
+                _keyquest_ocr_return("Live OCR could not start on this game. Try a one-shot scan.")
+                return
+            _keyquest_watch_apply(text, now)
+        if state.watch_value is not None and now - state.watch_confirmed > 1.5:
+            _keyquest_watch_apply(u"", now)
+        if now >= state.next_scan and not _keyquest_vision.busy:
+            state.next_scan = now + 0.55
+            try:
+                _keyquest_submit_local(state.watch, state.region)
+            except Exception as error:
+                renpy.log("Keyquest live OCR: " + repr(error))
+                _keyquest_ocr_return("Could not capture the game screen.")
+
+    def _keyquest_watch_press():
+        state = _keyquest_scan_state
+        if (state.watch != "keys" or not state.watch_value or not state.activity
+                or not state.activity.hasWindowFocus() or _kq_time.time() - state.watch_confirmed > 1.5):
+            return
+        key = state.watch_value[state.watch_index]
+        state.watch_index = (state.watch_index + 1) % len(state.watch_value)
+        _keyquest_press_named(key)
+
+    def _keyquest_press_named(key):
+        _keyquest_press(key, " " if key == "SPACE" else key if len(key) == 1 else "")
 
     def _keyquest_insert_text(text):
         import pygame
@@ -265,7 +376,7 @@ init python:
         sequence, loops, interval, region, index = _keyquest_repeat_job
         key = sequence[index % len(sequence)]
         index += 1
-        _keyquest_press(key, " " if key == "SPACE" else key if len(key) == 1 else "")
+        _keyquest_press_named(key)
         if index >= len(sequence) * loops:
             renpy.store._keyquest_repeat_job = None
             renpy.hide_screen("_keyquest_repeat_runner")
@@ -288,7 +399,7 @@ screen _keyquest_smart_input(initial_mode="text", initial_region="full", initial
     default interval = initial_repeat[2]
     frame:
         align (0.5, 0.38)
-        at Transform(zoom=min(1.0, config.screen_width / 620.0, config.screen_height / 505.0))
+        at Transform(zoom=min(1.0, config.screen_width / 620.0, config.screen_height / 555.0))
         background Frame("keyquest_panel.png", 24, 24)
         padding (18, 16)
         xsize 610
@@ -325,6 +436,7 @@ screen _keyquest_smart_input(initial_mode="text", initial_region="full", initial
                     textbutton ("%d loops" % loops) style "keyquest_deck_key" action SetScreenVariable("loops", _keyquest_next_option(loops, (1, 3, 5, 10, 25, 50)))
                     textbutton ("%.2f s" % interval) style "keyquest_deck_key" action SetScreenVariable("interval", _keyquest_next_option(interval, (0.08, 0.15, 0.30, 0.60)))
                     textbutton "Start" style "keyquest_deck_accent" sensitive bool(sequence) action Function(_keyquest_start_repeat, sequence, loops, interval, region)
+                textbutton "Follow key prompts" style "keyquest_deck_key" action Function(_keyquest_watch_start, "keys", region, (sequence, loops, interval))
             else:
                 hbox:
                     spacing 6
@@ -337,6 +449,8 @@ screen _keyquest_smart_input(initial_mode="text", initial_region="full", initial
                     textbutton ("Scan & show" if destination == "show" else "Scan & type") style "keyquest_deck_accent" action Function(_keyquest_ocr_begin, mode, region, destination)
                 if destination == "type":
                     text "Open the game's text field before scanning." color "#b9d3e8" size 19
+                elif mode == "math":
+                    textbutton "Watch for answers" style "keyquest_deck_key" action Function(_keyquest_watch_start, "math", region)
 
 screen _keyquest_ocr_result(mode, region, result):
     zorder 995
@@ -380,3 +494,22 @@ screen _keyquest_repeat_runner():
             textbutton "Edit keys" style "keyquest_deck_key" action Function(_keyquest_edit_repeat)
             textbutton "Stop repeat" style "keyquest_deck_key" action Function(_keyquest_ocr_reset)
         timer interval repeat True modal True action Function(_keyquest_repeat_press, _update_screens=False)
+
+screen _keyquest_live_ocr():
+    zorder 995
+    $ live = _keyquest_scan_state
+    timer 0.1 repeat True action Function(_keyquest_watch_tick, _update_screens=False)
+    if live.watch == "keys":
+        timer live.repeat_settings[2] repeat True action Function(_keyquest_watch_press, _update_screens=False)
+    frame:
+        align (0.98, 0.04)
+        background Frame("keyquest_panel.png", 24, 24)
+        padding (12, 8)
+        hbox:
+            spacing 10
+            if live.watch_value is not None:
+                $ caption = _keyquest_sequence_label(live.watch_value) if live.watch == "keys" else "Answer  " + live.watch_value
+                text caption color "#eff8ff" size 22 yalign 0.5 xmaximum 365
+            else:
+                text "Watching…" color "#b9d3e8" size 20 yalign 0.5
+            textbutton "Stop OCR" style "keyquest_deck_key" action Function(_keyquest_ocr_reset)

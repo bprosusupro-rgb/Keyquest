@@ -92,7 +92,7 @@ public final class Studio extends Activity {
         output.addView(profile);
         valuesAddon = option(output, "Include local value editor");
         automationAddon = option(output, "Include macro writer and auto-clicker");
-        ocrAddon = option(output, "Include Smart Input · OCR, math, repeat key");
+        ocrAddon = option(output, "Include Smart Input · OCR, math, live key detection");
         contents = label(output, "", 15, MUTED, false);
         valuesAddon.setOnCheckedChangeListener((view, checked) -> showContents());
         automationAddon.setOnCheckedChangeListener((view, checked) -> showContents());
@@ -350,6 +350,8 @@ public final class Studio extends Activity {
                 }
                 if (includeOcr) {
                     gameAssets.put(ApkBuilder.OCR, readAsset("keyquest_ocr_" + profileKey + ".rpyc"));
+                    gameAssets.put(ApkBuilder.VISION_SCRIPT, readAsset("keyquest_vision_" + profileKey + ".rpyc"));
+                    gameAssets.put(ApkBuilder.VISION_PACK, readAsset("ocr/vision.zip", 16 * 1024 * 1024));
                 }
                 ApkBuilder.build(source, unsigned, result, gameAssets, signer(), libraryLabel, new BuildTimeline());
                 message = String.format(Locale.getDefault(), "Verified · %.1f MB\n%s",
@@ -414,9 +416,13 @@ public final class Studio extends Activity {
     }
 
     private byte[] readAsset(String name) throws IOException {
+        return readAsset(name, 1024 * 1024);
+    }
+
+    private byte[] readAsset(String name, int limit) throws IOException {
         try (InputStream input = getAssets().open(name);
              ByteArrayOutputStream data = new ByteArrayOutputStream()) {
-            ApkBuilder.copy(input, data, 1024 * 1024);
+            ApkBuilder.copy(input, data, limit);
             return data.toByteArray();
         }
     }
@@ -533,7 +539,7 @@ public final class Studio extends Activity {
         contents.setText("Included: keyboard and corner launcher"
                 + (valuesAddon.isChecked() ? " · Values" : "")
                 + (automationAddon.isChecked() ? " · Macro writer · Auto-clicker" : "")
-                + (ocrAddon.isChecked() ? " · OCR · Math · Repeat key" : ""));
+                + (ocrAddon.isChecked() ? " · OCR · Math · Live key detection" : ""));
     }
 
     private static String describe(Exception error) {

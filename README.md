@@ -33,13 +33,15 @@ Automation uses Ren’Py/SDL2 events inside the rebuilt game. It is intended for
 
 ### Smart Input
 
-Enable **Include Smart Input** when building or updating the APK. In the game, open **Keyboard → OCR**. Keep Keyquest Studio installed so the game can use its offline recognition engine.
+Enable **Include Smart Input** when building or updating the APK. In the game, open **Keyboard → OCR**. The rebuilt game includes an offline Tesseract neural OCR model. Keep Studio installed for the one-shot fallback on older runtimes.
 
 - **Copy text** reads English on the game screen. **Show result** displays it in the game, and **Type in game** sends it to the active text field.
 - **Solve math** reads one arithmetic expression and offers the same output options. It supports addition, subtraction, multiplication, division, and parentheses. Choose **Top** or **Center** if unrelated text makes it hard to find the problem.
 - **Repeat keys** runs one key or several in the order you enter them. Set the interval and loop count, then select **Start**. **Read keys** can fill the sequence from a visible prompt such as “Press S and I rapidly.” Check the detected keys before starting. When the prompt changes, select **Edit keys** to stop the current repeat and scan again or enter different keys. **Stop repeat** ends the run.
 
-**Scan & show** and **Scan & type** capture one frame after the panel hides. Studio processes it locally and returns the text to the game. **Type in game** uses the active game field’s text-input event and respects its character limits. The Android recognition round trip still needs verification on a Quest headset.
+**Follow key prompts** recognizes new key cues while the game is open, cycles through the detected keys at the chosen interval, and stops sending keys when no cue is recognized. **Watch for answers** updates the displayed result as visible arithmetic changes. Both live modes scan periodically, work best with a small scan area, and stop after one minute or when you tap **Stop OCR**.
+
+**Scan & show** and **Scan & type** capture one frame after the panel hides. Recognition runs locally in the game process when supported. **Type in game** uses the active game field’s text-input event and respects its character limits. The Android recognition round trip still needs verification on a Quest headset.
 
 ### Optional value editor
 

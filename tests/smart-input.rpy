@@ -9,6 +9,7 @@ init 999 python:
             ("4*500000000", None), ("print(1)", None)):
         assert _keyquest_math_answer(sample) == answer, (sample, _keyquest_math_answer(sample))
     assert _keyquest_read_key_cue(u"Press S and I rapidly!") == ("s", "i")
+    assert _keyquest_read_key_cue(u"Press S and | rapidly!") == ("s", "i")
     assert _keyquest_read_key_cue(u"Keys: A → Enter, A") == ("a", "RETURN", "a")
     assert _keyquest_read_key_cue(u"Press Space to continue") == ("SPACE",)
     assert _keyquest_read_key_cue(u"Press S\nPress I") is None
@@ -59,6 +60,24 @@ label start:
     $ assert observed_keys == ["s", "i", "s", "s", "i", "s"], observed_keys
     $ assert renpy.get_screen("_keyquest_repeat_runner") is None
     hide screen _keyquest_test_key_order
+    python:
+        _keyquest_scan_state.watch = "keys"
+        _keyquest_watch_apply(u"Press S and I rapidly!", 1.0)
+        assert _keyquest_scan_state.watch_value == ("s", "i")
+        _keyquest_scan_state.watch_index = 1
+        _keyquest_watch_apply(u"Press S and I rapidly!", 1.5)
+        assert _keyquest_scan_state.watch_index == 1
+        _keyquest_watch_apply(u"Press A then D", 2.0)
+        assert _keyquest_scan_state.watch_value == ("a", "d")
+        assert _keyquest_scan_state.watch_index == 0
+        _keyquest_watch_apply(u"Wait for the next round", 2.5)
+        assert _keyquest_scan_state.watch_value is None
+        _keyquest_scan_state.watch = "math"
+        _keyquest_watch_apply(u"4 * 5 = ?", 3.0)
+        assert _keyquest_scan_state.watch_value == "20"
+        _keyquest_watch_apply(u"5 + 1 = ?", 3.5)
+        assert _keyquest_scan_state.watch_value == "6"
+        _keyquest_ocr_reset()
     $ print("Keyquest Smart Input render and repeat timer tests passed.")
     show screen _keyquest_test_typing
     $ actual = renpy.input("Test in-game OCR text")
