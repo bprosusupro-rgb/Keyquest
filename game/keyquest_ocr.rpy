@@ -1,4 +1,4 @@
-# Optional on-device screen reading and repeat keys for Ren'Py 7.8 and 8.0–8.5.
+# Optional on-device screen reading and repeat keys for Ren'Py 7.5, 7.8, and 8.0–8.5.
 
 init python:
     import ast as _kq_ast
@@ -10,6 +10,9 @@ init python:
         started = 0.0
         response = None
         bridge = None
+        frame = None
+        pass_region = None
+        first_text = None
         mode = "text"
         region = "full"
         destination = "show"
@@ -79,11 +82,22 @@ init python:
         return "0" if formatted == "-0" else formatted
 
     def _keyquest_read_typing_prompt(text):
-        instruction = _kq_re.search(r"\(?\s*type\s+the\s+line\s+above\b", text, _kq_re.I)
+        instruction = _kq_re.search(r"\(?[ \t]*type\s+the\s+(?:line|sentence)\s+above\b", text, _kq_re.I)
         if instruction is None:
             return None
-        preceding = text[:instruction.start()].splitlines()
-        prompt = next((line.strip() for line in reversed(preceding) if line.strip()), u"")
+        preceding = text[:instruction.start()].rstrip().splitlines()
+        if not preceding:
+            return None
+        lines = [preceding.pop().strip()]
+        while preceding:
+            previous = preceding.pop().strip()
+            if not previous and lines[0][:1].islower() and preceding and preceding[-1].strip():
+                continue
+            if (not _kq_re.search(r"[^\W\d_]", previous, _kq_re.UNICODE)
+                    or previous.rstrip(u'"”’').endswith((".", "!", "?"))):
+                break
+            lines.insert(0, previous)
+        prompt = u" ".join(lines)
         # The outlined text box can be read as an isolated 4 at either end.
         border_noise = _kq_re.search(r"(?<=[.!?])\s+4$", prompt)
         if border_noise:
@@ -116,6 +130,9 @@ init python:
         state.request += 1
         state.response = None
         state.bridge = None
+        state.frame = None
+        state.pass_region = None
+        state.first_text = None
         state.native = False
         state.activity = None
         state.watch = None
@@ -133,6 +150,7 @@ init python:
         state.started = _kq_time.time()
         state.mode = mode
         state.region = region
+        state.pass_region = region
         state.destination = destination
         state.repeat_settings = repeat_settings
         renpy.hide_screen("_keyquest_smart_input")
@@ -150,7 +168,7 @@ init python:
                           initial_repeat=(sequence if keys is None else keys, loops, interval), status=message)
         renpy.restart_interaction()
 
-    def _keyquest_submit_local(mode, region):
+    def _keyquest_submit_local(mode, region, frame=None):
         from jnius import autoclass
 
         state = _keyquest_scan_state
@@ -160,7 +178,8 @@ init python:
             return False
         detailed = region in ("race", "bottom", "typing")
         size = _keyquest_capture_size(960 if state.watch and not detailed else 1440, detailed)
-        frame = renpy.screenshot_to_bytes(size)
+        if frame is None:
+            frame = renpy.screenshot_to_bytes(size)
         if not frame:
             return False
         return _keyquest_vision.start(state.request, frame, region, mode,
@@ -168,7 +187,7 @@ init python:
 
     def _keyquest_capture_size(maximum, allow_upscale=False):
         width, height = config.screen_width, config.screen_height
-        scale = min(float(maximum) / max(width, height), (1550000.0 / (width * height)) ** 0.5)
+        scale = min(float(maximum) / max(width, height), (2100000.0 / (width * height)) ** 0.5)
         if not allow_upscale:
             scale = min(1.0, scale)
         return (max(1, int(width * scale)), max(1, int(height * scale)))
@@ -176,14 +195,27 @@ init python:
     def _keyquest_ocr_capture_frame():
         state = _keyquest_scan_state
         renpy.hide_screen("_keyquest_ocr_capture")
+        region = state.pass_region or state.region
+        if state.frame is None:
+            large_text_scan = state.mode == "text" and state.region in ("full", "typing")
+            detailed = large_text_scan or region in ("race", "bottom")
+            try:
+                state.frame = renpy.screenshot_to_bytes(_keyquest_capture_size(1920 if large_text_scan else 1440, detailed))
+            except Exception as error:
+                _keyquest_trace("ocr_error", stage="capture")
+                renpy.log("Keyquest screen capture: " + repr(error))
+        if not state.frame:
+            _keyquest_ocr_return("Could not capture the game screen.")
+            return
         if not _keyquest_vision.unavailable and renpy.loadable("keyquest_vision.zip"):
             try:
-                state.native = _keyquest_submit_local(state.mode, state.region)
+                state.native = _keyquest_submit_local(state.mode, region, state.frame)
             except Exception as error:
                 _keyquest_trace("ocr_error", stage="local_engine")
                 renpy.log("Keyquest local OCR: " + repr(error))
             if state.native:
-                renpy.show_screen("_keyquest_ocr_wait")
+                if renpy.get_screen("_keyquest_ocr_wait") is None:
+                    renpy.show_screen("_keyquest_ocr_wait")
                 return
         try:
             from jnius import autoclass, PythonJavaClass, java_method
@@ -206,22 +238,20 @@ init python:
             messenger = autoclass("android.os.Messenger")(handler)
             state.bridge = (callback, handler, messenger, activity)
 
-            frame = renpy.screenshot_to_bytes(_keyquest_capture_size(1440, state.region in ("race", "bottom", "typing")))
-            if not frame:
-                raise ValueError("No game frame")
+            frame = state.frame
             bitmap = autoclass("android.graphics.BitmapFactory").decodeByteArray(frame, 0, len(frame))
             if bitmap is None:
                 raise ValueError("Frame could not be decoded")
             crop = bitmap
             try:
                 width, height = bitmap.getWidth(), bitmap.getHeight()
-                area = _keyquest_ocr_crop(width, height, state.region)
+                area = _keyquest_ocr_crop(width, height, region)
                 if area is not None:
                     crop = autoclass("android.graphics.Bitmap").createBitmap(bitmap, *area)
                 stream = autoclass("java.io.ByteArrayOutputStream")()
                 formats = autoclass("android.graphics.Bitmap$CompressFormat")
                 encodings = [(formats.JPEG, quality) for quality in (92, 76, 58, 40)]
-                if state.region == "race":
+                if region == "race":
                     encodings.insert(0, (formats.PNG, 100))
                 for encoding, quality in encodings:
                     stream.reset()
@@ -234,8 +264,9 @@ init python:
                 extras.putByteArray("image", stream.toByteArray())
                 extras.putParcelable("reply", messenger)
                 extras.putBoolean("math", state.mode in ("math", "keys"))
-                extras.putBoolean("race", state.region == "race" and state.mode == "keys")
-                extras.putBoolean("typing", state.region == "typing")
+                extras.putBoolean("race", region == "race" and state.mode == "keys")
+                extras.putBoolean("typing", region == "typing")
+                extras.putBoolean("fullText", region == "full" and state.mode == "text")
                 intent = autoclass("android.content.Intent")()
                 intent.setClassName("org.keyquest.studio", "org.keyquest.studio.OcrActivity")
                 intent.addFlags(0x10000)  # FLAG_ACTIVITY_NO_ANIMATION
@@ -278,7 +309,21 @@ init python:
         if (state.destination == "type" and state.mode != "keys"
                 and activity is not None and not activity.hasWindowFocus()):
             return
-        _keyquest_trace("ocr_result", mode=state.mode, received=bool(text), failed=bool(error))
+        _keyquest_trace("ocr_result", mode=state.mode, region=state.pass_region or state.region,
+                        received=bool(text), failed=bool(error))
+        prompt = _keyquest_read_typing_prompt(text) if state.mode == "text" and text and not error else None
+        if (state.mode == "text" and state.frame is not None and state.first_text is None
+                and state.region in ("typing", "full") and prompt is None):
+            state.first_text = text if text and not error else u""
+            state.pass_region = "typing" if state.region == "full" else "full"
+            state.request += 1
+            state.response = None
+            state.bridge = None
+            _keyquest_trace("ocr_retry", region=state.pass_region)
+            _keyquest_ocr_capture_frame()
+            return
+        if state.mode == "text" and state.region == "full" and prompt is None and state.first_text:
+            text, error = state.first_text, None
         if error or not text:
             _keyquest_ocr_return(error or "No text found. Try a smaller scan area.")
             return
@@ -295,12 +340,12 @@ init python:
                 _keyquest_ocr_return("No single arithmetic problem found. Choose the area that contains it.")
                 return
         else:
-            output = _keyquest_read_typing_prompt(text)
+            output = prompt
             if output is None:
                 if state.region == "typing":
                     _keyquest_ocr_return("Could not isolate the typing prompt. Keep the entire box visible and scan again.")
                     return
-                output = u" ".join(text.split())[:160]
+                output = text.strip() if state.destination == "show" else u" ".join(text.split())
         _keyquest_ocr_reset()
         if state.destination == "show":
             renpy.show_screen("_keyquest_ocr_result", mode=state.mode, region=state.region, result=output)
@@ -429,7 +474,7 @@ init python:
             pygame.event.post(pygame.event.Event(pygame.TEXTINPUT, text=chunk))
 
     def _keyquest_next_option(value, choices):
-        return choices[(choices.index(value) + 1) % len(choices)]
+        return choices[(choices.index(value) + 1) % len(choices)] if value in choices else choices[0]
 
     def _keyquest_start_repeat(sequence, loops, interval, region):
         _keyquest_trace("repeat_started", keys=len(sequence), loops=loops, interval=interval)
@@ -526,9 +571,18 @@ screen _keyquest_smart_input(initial_mode="text", initial_region="full", initial
 
 screen _keyquest_ocr_result(mode, region, result):
     zorder 995
-    use _keyquest_floating("ocr-result", "OCR result", 520, 300, (0.5, 0.12)):
+    use _keyquest_floating("ocr-result", "OCR result", 810 if mode == "text" else 520, 420 if mode == "text" else 300, (0.5, 0.12)):
         text ("Answer" if mode == "math" else "Recognized text") color "#b9d3e8" size 22
-        text result.replace("{", "{{") substitute False color "#eff8ff" size (48 if mode == "math" else 24) xmaximum 480
+        if mode == "text":
+            viewport:
+                xsize 772
+                ysize 270
+                mousewheel True
+                draggable True
+                scrollbars "vertical"
+                text result.replace("{", "{{") substitute False color "#eff8ff" size 25 xmaximum 738
+        else:
+            text result.replace("{", "{{") substitute False color "#eff8ff" size 48 xmaximum 480
         hbox:
             spacing 6
             textbutton "Scan again" style "keyquest_deck_accent" action Function(_keyquest_ocr_begin, mode, region, "show")

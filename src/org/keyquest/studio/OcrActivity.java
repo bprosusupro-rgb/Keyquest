@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /** Processes a single game frame and returns the text to the requesting game. */
 public final class OcrActivity extends Activity {
     private static final int MAX_IMAGE_BYTES = 400 * 1024;
-    private static final int MAX_PIXELS = 1_600_000;
+    private static final int MAX_PIXELS = 2_100_000;
     private static final ExecutorService WORKER = Executors.newSingleThreadExecutor();
     private static final AtomicBoolean BUSY = new AtomicBoolean();
 
@@ -36,6 +36,7 @@ public final class OcrActivity extends Activity {
         final boolean math;
         final boolean race;
         final boolean typing;
+        final boolean fullText;
         try {
             reply = Build.VERSION.SDK_INT >= 33
                     ? getIntent().getParcelableExtra("reply", Messenger.class)
@@ -44,6 +45,7 @@ public final class OcrActivity extends Activity {
             math = getIntent().getBooleanExtra("math", false);
             race = getIntent().getBooleanExtra("race", false);
             typing = getIntent().getBooleanExtra("typing", false);
+            fullText = getIntent().getBooleanExtra("fullText", false);
             getIntent().replaceExtras((Bundle) null);
         } catch (RuntimeException badExtras) {
             finish();
@@ -61,7 +63,7 @@ public final class OcrActivity extends Activity {
             String result = null;
             String error = null;
             try {
-                result = recognize(image, math, race, typing);
+                result = recognize(image, math, race, typing, fullText);
             } catch (IOException | RuntimeException | LinkageError failure) {
                 android.util.Log.e("KeyquestOCR", "OCR could not process the supplied frame", failure);
                 error = "OCR could not read this frame.";
@@ -74,7 +76,7 @@ public final class OcrActivity extends Activity {
         });
     }
 
-    private String recognize(byte[] image, boolean math, boolean race, boolean typing) throws IOException {
+    private String recognize(byte[] image, boolean math, boolean race, boolean typing, boolean fullText) throws IOException {
         BitmapFactory.Options bounds = new BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
         BitmapFactory.decodeByteArray(image, 0, image.length, bounds);
@@ -101,6 +103,11 @@ public final class OcrActivity extends Activity {
                 engine.setPageSegMode(segmentation);
                 engine.setImage(source);
                 String text = engine.getUTF8Text();
+                if ((typing || fullText) && (text == null || text.trim().isEmpty())) {
+                    engine.setPageSegMode(TessBaseAPI.PageSegMode.PSM_SPARSE_TEXT);
+                    engine.setImage(source);
+                    text = engine.getUTF8Text();
+                }
                 return text == null ? "" : text.substring(0, Math.min(text.length(), 4096)).trim();
             } finally {
                 engine.recycle();

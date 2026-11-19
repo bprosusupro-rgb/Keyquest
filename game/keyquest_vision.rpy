@@ -11,7 +11,7 @@ init python:
         if region == "bottom":
             return (width // 5, height * 17 // 25, width * 3 // 5, height // 4)
         if region == "typing":
-            return (width * 13 // 100, height * 74 // 100, width * 74 // 100, height * 22 // 100)
+            return (width // 50, height * 3 // 5, width * 24 // 25, height * 39 // 100)
         if region == "race":
             return (width * 23 // 100, height // 8, width * 54 // 100, height * 3 // 16)
         return None
@@ -86,15 +86,28 @@ init python:
                     self.set_variable(self.engine, b"tessedit_char_whitelist", b"0123456789")
                     if mode != "digits":
                         filtered = self.tile_label_mask(source)
-                self.mode(self.engine, 7 if race or mode == "digits-light" else (8 if digits else (6 if region == "typing" else (3 if mode == "text" else 11))))
-                self.set_image(self.engine, filtered or source)
-                text = self.text(self.engine)
-                if not text:
-                    return u""
-                try:
-                    return self.ctypes.string_at(text).decode("utf-8", "replace").strip()[:4096]
-                finally:
-                    self.release_text(text)
+                if race or mode == "digits-light":
+                    segments = (7,)
+                elif digits:
+                    segments = (8,)
+                elif mode != "text":
+                    segments = (11,)
+                elif region == "typing":
+                    segments = (6, 11)
+                else:
+                    segments = (3, 11)
+                for segmentation in segments:
+                    self.mode(self.engine, segmentation)
+                    self.set_image(self.engine, filtered or source)
+                    text = self.text(self.engine)
+                    if text:
+                        try:
+                            result = self.ctypes.string_at(text).decode("utf-8", "replace").strip()
+                            if result:
+                                return result[:4096]
+                        finally:
+                            self.release_text(text)
+                return u""
             finally:
                 self.clear(self.engine)
                 if digits:

@@ -23,6 +23,12 @@ init 999 python:
     assert _keyquest_read_typing_prompt(typing_noise) == typing_prompt
     assert _keyquest_read_typing_prompt(u"4 apples.\n(Type the line above exactly as shown.)") == u"4 apples."
     assert _keyquest_read_typing_prompt(u"Text without the instruction.") is None
+    wrapped_prompt = u"0/7\nThe single player was not\nworthy of any praise.\n(Type the line above exactly as shown, then press enter.)"
+    assert _keyquest_read_typing_prompt(wrapped_prompt) == typing_prompt
+    assert _keyquest_read_typing_prompt(wrapped_prompt.replace("not\nworthy", "not\n\nworthy")) == typing_prompt
+    crop_x, crop_y, crop_width, crop_height = _keyquest_ocr_crop(1920, 1080, "typing")
+    assert crop_x <= 40 and crop_x + crop_width >= 1880
+    assert crop_y <= 650 and crop_y + crop_height >= 1050
     phrase = u"Hello from Keyquest! " * 5 + u"café"
     _keyquest_insert_text(phrase)
     posted = [ev.text for ev in pygame.event.get() if ev.type == pygame.TEXTINPUT]
@@ -37,6 +43,17 @@ label start:
     show screen _keyquest_smart_input(initial_mode="repeat")
     $ renpy.pause(0.15, hard=True)
     hide screen _keyquest_smart_input
+    python:
+        long_scan = u"First line.\n" + (u"Long text continues across the screen. " * 9).strip()
+        _keyquest_scan_state.started = _kq_time.time()
+        _keyquest_scan_state.mode = "text"
+        _keyquest_scan_state.region = "full"
+        _keyquest_scan_state.destination = "show"
+        _keyquest_scan_state.response = (_keyquest_scan_state.request, long_scan, None)
+        _keyquest_ocr_poll()
+    $ renpy.pause(0.15, hard=True)
+    $ assert renpy.get_screen("_keyquest_ocr_result").scope["result"] == long_scan
+    hide screen _keyquest_ocr_result
     show screen _keyquest_smart_input(initial_mode="math", status="Sample error.")
     $ renpy.pause(0.15, hard=True)
     hide screen _keyquest_smart_input
@@ -117,8 +134,21 @@ init python:
         _keyquest_scan_state.started = _kq_time.time()
         _keyquest_scan_state.mode = "text"
         _keyquest_scan_state.destination = "type"
-        _keyquest_scan_state.region = "typing"
-        _keyquest_scan_state.response = (_keyquest_scan_state.request, typing_noise, None)
+        _keyquest_scan_state.region = "full"
+        _keyquest_scan_state.frame = b"captured frame"
+        _keyquest_scan_state.response = (_keyquest_scan_state.request, u"", None)
+        original_capture = _keyquest_ocr_capture_frame
+
+        def finish_retry():
+            if _keyquest_scan_state.pass_region != "typing" or _keyquest_scan_state.frame != b"captured frame":
+                raise AssertionError("The full-screen retry did not reuse the captured frame.")
+            _keyquest_scan_state.response = (_keyquest_scan_state.request, wrapped_prompt, None)
+
+        renpy.store._keyquest_ocr_capture_frame = finish_retry
+        try:
+            _keyquest_ocr_poll()
+        finally:
+            renpy.store._keyquest_ocr_capture_frame = original_capture
         _keyquest_ocr_poll()
 
 screen _keyquest_test_typing():
