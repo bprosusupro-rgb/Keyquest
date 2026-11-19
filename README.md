@@ -9,6 +9,12 @@ A standalone Android app that puts a keyboard inside a compatible Ren’Py game.
 3. Studio scans the selected APK and shows its title, package, app version, and Ren’Py engine version when available. Studio automatically chooses a profile for detected Ren’Py 7.8 and 8.0–8.5 builds. When the usual metadata is absent, Studio also checks loose and cached version modules and compares bundled engine-script fingerprints with official SDKs. A verified fingerprint can select the engine family automatically. Weaker script and Python clues give suggestions. Verify the engine family before selecting it. The Python marker can narrow the choices but cannot identify the exact engine version. A detected unsupported version stays blocked.
 4. Sideload the newly named APK from Downloads. Tap the **Keyboard** button in the game’s bottom-right corner. **S** and **I** are the default shortcuts. **Settings** lets you remap them, switch theme, change size, and dock the keyboard at the top or bottom.
 
+### Floating keyboard and updates
+
+Hold **Drag to move** along the top of the keyboard, then move your pointer and release. The game remembers where you leave the keyboard. **Settings** includes **Reset position**, docking, compact mode, and theme options.
+
+To update a patched game, choose its existing APK file or select the installed patched game. Studio detects it, loads the existing add-on selections, and offers **Update keyboard APK**. The update replaces only the known Keyquest scripts and artwork and applies the current add-on choices. Save the new APK to Downloads and install it as an update. In-place installation requires the same Android signing key, which normally means using the same Studio installation on the same headset. Keep your original APK and a save backup.
+
 ### Build timeline and output name
 
 Choose an output name before building. Studio uses it for the filename in Downloads and, with the optional **Rename in app library** setting enabled, for the Android launcher label. The original package ID and game launcher artwork are preserved. The rebuilt game has a labeled **Keyboard** button with the Keyquest logo. If the game cannot load the image, the text still opens the keyboard.

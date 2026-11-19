@@ -261,7 +261,9 @@ public final class Studio extends Activity {
                 if (selectedApk != null) {
                     String title = name.split("\n", 2)[0].replaceFirst("(?i)\\.apk$", "").trim();
                     if (title.length() > 65) title = title.substring(0, 65);
-                    outputTitle.setText(title + " • Keyquest");
+                    outputTitle.setText(findings.alreadyPatched ? title : title + " • Keyquest");
+                    valuesAddon.setChecked(findings.valuesIncluded);
+                    automationAddon.setChecked(findings.automationIncluded);
                 }
                 status.setText(outcome);
                 refresh();
@@ -271,7 +273,9 @@ public final class Studio extends Activity {
 
     private static String describeInspection(ApkInspection result) {
         if (!result.universalRenpy) return "No supported Ren’Py universal APK layout detected.";
-        if (result.alreadyPatched) return "Ren’Py game detected. This APK already contains Keyquest.";
+        if (result.alreadyPatched && result.canBuild()) {
+            return "Keyquest update detected. Existing add-ons are selected below.";
+        }
         if (result.fingerprintFamily != null) return "Ren’Py " + result.fingerprintFamily
                 + ".x profile matched from engine files. Ready to build.";
         if (result.engineVersion == null) return "Ren’Py game detected. The engine version could not be confirmed.";
@@ -328,16 +332,16 @@ public final class Studio extends Activity {
                 unsigned = File.createTempFile("rebuild-", ".apk", getCacheDir());
                 result = File.createTempFile("keyboard-", ".apk", getCacheDir());
                 Map<String, byte[]> gameAssets = new LinkedHashMap<>();
-                gameAssets.put("assets/x-game/x-keyquest_overlay.rpyc", readAsset("keyquest_" + profileKey + ".rpyc"));
-                for (String artwork : new String[]{"logo", "panel", "panel_mint", "key", "key_focus", "sheet"}) {
+                gameAssets.put(ApkBuilder.OVERLAY, readAsset("keyquest_" + profileKey + ".rpyc"));
+                for (String artwork : ApkBuilder.ARTWORK) {
                     String filename = "keyquest_" + artwork + ".png";
-                    gameAssets.put("assets/x-game/x-" + filename, readAsset(filename));
+                    gameAssets.put(ApkBuilder.artworkPath(artwork), readAsset(filename));
                 }
                 if (includeValues) {
-                    gameAssets.put("assets/x-game/x-keyquest_values.rpyc", readAsset("keyquest_values_" + profileKey + ".rpyc"));
+                    gameAssets.put(ApkBuilder.VALUES, readAsset("keyquest_values_" + profileKey + ".rpyc"));
                 }
                 if (includeAutomation) {
-                    gameAssets.put("assets/x-game/x-keyquest_automation.rpyc",
+                    gameAssets.put(ApkBuilder.AUTOMATION,
                             readAsset("keyquest_automation_" + profileKey + ".rpyc"));
                 }
                 ApkBuilder.build(source, unsigned, result, gameAssets, signer(), libraryLabel, new BuildTimeline());
@@ -509,6 +513,7 @@ public final class Studio extends Activity {
         renameInLibrary.setEnabled(!busy && ready == null && selectedApk != null);
         options.setVisibility(ready == null ? View.GONE : View.VISIBLE);
         options.setEnabled(!busy);
+        build.setText(inspection != null && inspection.alreadyPatched ? "Update keyboard APK" : "Build APK");
         build.setEnabled(canBuild());
         save.setVisibility(ready == null ? View.GONE : View.VISIBLE);
         save.setEnabled(!busy);

@@ -9,7 +9,22 @@ import java.util.*;
 import java.util.zip.*;
 
 final class ApkBuilder {
-    private static final String OVERLAY = "assets/x-game/x-keyquest_overlay.rpyc";
+    static final String OVERLAY = "assets/x-game/x-keyquest_overlay.rpyc";
+    static final String VALUES = "assets/x-game/x-keyquest_values.rpyc";
+    static final String AUTOMATION = "assets/x-game/x-keyquest_automation.rpyc";
+    static final String[] ARTWORK = {"logo", "panel", "panel_mint", "key", "key_focus", "sheet"};
+
+    static String artworkPath(String name) {
+        return "assets/x-game/x-keyquest_" + name + ".png";
+    }
+
+    private static boolean studioAsset(String path) {
+        if (path.equals(OVERLAY) || path.equals(VALUES) || path.equals(AUTOMATION)) return true;
+        for (String name : ARTWORK) {
+            if (path.equals(artworkPath(name))) return true;
+        }
+        return false;
+    }
     private static final long LIMIT = 3_000_000_000L;
 
     interface Observer {
@@ -72,7 +87,12 @@ final class ApkBuilder {
             if (!names.contains("AndroidManifest.xml") || !names.contains("assets/private.mp3") || !scripts) {
                 throw new IOException("Choose a single Ren’Py APK with the standard universal layout.");
             }
-            if (names.contains(OVERLAY) || assets.keySet().stream().anyMatch(names::contains)) throw new IOException("This game already contains Keyquest.");
+            boolean update = names.contains(OVERLAY);
+            for (String asset : assets.keySet()) {
+                if (names.contains(asset) && (!update || !studioAsset(asset))) {
+                    throw new IOException("The game already uses one of Keyquest’s asset names.");
+                }
+            }
 
             try (Counter bytes = new Counter(new BufferedOutputStream(Files.newOutputStream(result.toPath())));
                  ZipOutputStream output = new ZipOutputStream(bytes)) {
@@ -82,7 +102,7 @@ final class ApkBuilder {
                 observer.update("Repacking", 0, total);
                 for (ZipEntry original : Collections.list(input.entries())) {
                     String name = original.getName();
-                    if (signature(name)) {
+                    if (signature(name) || update && studioAsset(name)) {
                         completed += original.getSize();
                         continue;
                     }
