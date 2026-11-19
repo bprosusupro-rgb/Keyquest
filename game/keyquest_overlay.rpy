@@ -66,6 +66,8 @@ screen _keyquest_keyboard():
                     textbutton quick.upper() style "keyquest_key" action Function(_keyquest_press, quick, quick, _update_screens=False)
                 if renpy.has_screen("_keyquest_values"):
                     textbutton "Values" style "keyquest_key" action [Hide("_keyquest_keyboard"), ToggleScreen("_keyquest_values")]
+                if renpy.has_screen("_keyquest_automation"):
+                    textbutton "Macros" style "keyquest_key" action [Hide("_keyquest_keyboard"), Show("_keyquest_automation")]
                 textbutton "Settings" style "keyquest_key" action ToggleScreenVariable("settings_open")
                 textbutton "Close" style "keyquest_key" action Hide("_keyquest_keyboard")
             if settings_open:

@@ -6,7 +6,7 @@ A standalone Android app that puts a keyboard inside a compatible Ren’Py game.
 
 1. Sideload **KeyquestStudio.apk** and open **Keyquest Studio**.
 2. Choose a downloaded APK with the file picker or choose an installed single-APK game. The file picker needs an Android document provider. If Quest does not expose one, use the installed-game picker.
-3. Studio scans the selected APK and shows its title, package, app version, and Ren’Py engine version when available. Studio automatically chooses a profile for detected Ren’Py 7.8 and 8.0–8.5 builds. If the version is unknown, select the correct engine family before building. A detected unsupported version stays blocked.
+3. Studio scans the selected APK and shows its title, package, app version, and Ren’Py engine version when available. Studio automatically chooses a profile for detected Ren’Py 7.8 and 8.0–8.5 builds. If engine metadata is absent, Studio looks for a bundled Python library and suggests a shortlist. Verify the engine family before selecting it. The Python marker can narrow the choices but cannot identify the exact engine version. A detected unsupported version stays blocked.
 4. Sideload the newly named APK from Downloads. Tap the **Keyboard** button in the game’s bottom-right corner. **S** and **I** are the default shortcuts. **Settings** lets you remap them, switch theme, change size, and dock the keyboard at the top or bottom.
 
 ### Build timeline and output name
@@ -14,6 +14,16 @@ A standalone Android app that puts a keyboard inside a compatible Ren’Py game.
 Choose an output name before building. Studio uses it for the filename in Downloads and, with the optional **Rename in app library** setting enabled, for the Android launcher label. The original package ID and game launcher artwork are preserved. The rebuilt game has a labeled **Keyboard** button with the Keyquest logo. If the game cannot load the image, the text still opens the keyboard.
 
 The build view shows repacking, adding controls, signing, and verification. During repacking it measures copied bytes and estimates time remaining for that step from the observed copy rate. Signing and verification show the stage instead of a guessed ETA. The final report lists the verified APK size and name. Choose **Change build options** to run a fresh build with another name or add-on selection.
+
+### Macro writer and auto-clicker
+
+Enable **Include macro writer and auto-clicker** in Studio before building. The **Included** line previews what will be added. In the rebuilt game, select **Keyboard → Macros**.
+
+- **Macro writer** appends letters, digits, Space, and Wait to a sequence, with Undo, Clear, step speed, and repeat controls. The draft is saved in the game’s persistent settings.
+- **Auto-clicker** asks you to tap a target inside the game, then repeats clicks there at the selected interval and count.
+- **Stop automation** stops either tool. Jobs also end when their queue is complete or when a save is loaded.
+
+Automation uses Ren’Py/SDL2 events inside the rebuilt game. It is intended for local gameplay. Target behavior still depends on the game’s input code and the Quest runtime. Ren’Py 8.6 moved to SDL3 and has no bundled profile.
 
 ### Optional value editor
 
@@ -35,7 +45,7 @@ Run `build.sh path/to/KeyquestStudio.apk` on Linux with Java and zip. Set the fo
 - `ECJ_JAR` — Eclipse Java compiler 3.39.0
 - `SIGNING_KEYSTORE`, `SIGNING_ALIAS`, `SIGNING_PASSWORD` — signing configuration for the Studio APK
 
-The bundled scripts are compiled with SDKs 7.8.7, 8.0.3, 8.1.3, 8.2.3, 8.3.7, 8.4.1, and 8.5.2. Run `./compile-profile.sh /path/to/renpy-sdk 8_4` to regenerate a profile. For a project you can rebuild from source, copy the overlay script and `assets/keyquest_*.png` into its `game/` folder. Include `game/keyquest_values.rpy` for the optional editor, then export from Ren’Py with the original key.
+The bundled scripts are compiled with SDKs 7.8.7, 8.0.3, 8.1.3, 8.2.3, 8.3.7, 8.4.1, and 8.5.2. Run `./compile-profile.sh /path/to/renpy-sdk 8_4` to regenerate a profile. For a project you can rebuild from source, copy the overlay script and `assets/keyquest_*.png` into its `game/` folder. Include `game/keyquest_values.rpy` for the editor and `game/keyquest_automation.rpy` for macros and clicks, then export from Ren’Py with the original key.
 
 ## Design
 

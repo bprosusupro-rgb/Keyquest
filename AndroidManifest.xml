@@ -1,4 +1,4 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.keyquest.studio" android:versionCode="7" android:versionName="1.0.4">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.keyquest.studio" android:versionCode="8" android:versionName="1.0.5">
   <uses-sdk android:minSdkVersion="30" android:targetSdkVersion="35"/>
   <queries><intent><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent></queries>
   <application android:label="Keyquest Studio" android:icon="@drawable/studio_brand" android:allowBackup="false" android:theme="@android:style/Theme.Material.NoActionBar">

@@ -27,13 +27,13 @@ import static org.keyquest.studio.StudioStyle.*;
 
 public final class Studio extends Activity {
     private static final int OPEN = 1;
-    private TextView selection, status, timeline, timing;
+    private TextView selection, status, timeline, timing, recommendation, contents;
     private EditText outputTitle;
     private String filename;
     private final String[] phases = {"Repacking", "Adding controls", "Signing", "Verifying"};
     private Button browse, installed, build, save, options;
     private ProgressBar progress;
-    private CheckBox valuesAddon, renameInLibrary;
+    private CheckBox valuesAddon, renameInLibrary, automationAddon;
     private Spinner profile;
     private File selectedApk, cachedApk;
     private ApkInspection inspection;
@@ -88,8 +88,14 @@ public final class Studio extends Activity {
         versions.add("Choose the game’s Ren’Py version");
         for (String family : ApkInspection.ENGINE_FAMILIES) versions.add("Ren’Py " + family + ".x");
         profile.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, versions));
+        recommendation = label(output, "", 15, MUTED, false);
         output.addView(profile);
         valuesAddon = option(output, "Include local value editor");
+        automationAddon = option(output, "Include macro writer and auto-clicker");
+        contents = label(output, "", 15, MUTED, false);
+        valuesAddon.setOnCheckedChangeListener((view, checked) -> showContents());
+        automationAddon.setOnCheckedChangeListener((view, checked) -> showContents());
+        showContents();
         label(output, "Output name", 15, MUTED, true);
         outputTitle = new EditText(this);
         outputTitle.setHint("Game name");
@@ -304,6 +310,7 @@ public final class Studio extends Activity {
         refresh();
         final File source = selectedApk;
         final boolean includeValues = valuesAddon.isChecked();
+        final boolean includeAutomation = automationAddon.isChecked();
         final String profileKey = family.replace('.', '_');
         new Thread(() -> {
             File unsigned = null, result = null;
@@ -324,6 +331,10 @@ public final class Studio extends Activity {
                 }
                 if (includeValues) {
                     gameAssets.put("assets/x-game/x-keyquest_values.rpyc", readAsset("keyquest_values_" + profileKey + ".rpyc"));
+                }
+                if (includeAutomation) {
+                    gameAssets.put("assets/x-game/x-keyquest_automation.rpyc",
+                            readAsset("keyquest_automation_" + profileKey + ".rpyc"));
                 }
                 ApkBuilder.build(source, unsigned, result, gameAssets, signer(), libraryLabel, new BuildTimeline());
                 message = String.format(Locale.getDefault(), "Verified · %.1f MB\n%s",
@@ -484,8 +495,12 @@ public final class Studio extends Activity {
         installed.setEnabled(!busy);
         profile.setVisibility(inspection != null && inspection.canBuild() && inspection.engineVersion == null
                 ? View.VISIBLE : View.GONE);
+        recommendation.setVisibility(inspection != null && inspection.universalRenpy
+                ? View.VISIBLE : View.GONE);
+        recommendation.setText(inspection != null ? inspection.versionSuggestion() : "");
         profile.setEnabled(!busy);
         valuesAddon.setEnabled(!busy && ready == null);
+        automationAddon.setEnabled(!busy && ready == null);
         outputTitle.setEnabled(!busy && ready == null && selectedApk != null);
         renameInLibrary.setEnabled(!busy && ready == null && selectedApk != null);
         options.setVisibility(ready == null ? View.GONE : View.VISIBLE);
@@ -495,6 +510,12 @@ public final class Studio extends Activity {
         save.setEnabled(!busy);
         build.setVisibility(ready == null ? View.VISIBLE : View.GONE);
         progress.setVisibility(busy ? View.VISIBLE : View.GONE);
+    }
+
+    private void showContents() {
+        contents.setText("Included: keyboard and corner launcher"
+                + (valuesAddon.isChecked() ? " · Values" : "")
+                + (automationAddon.isChecked() ? " · Macro writer · Auto-clicker" : ""));
     }
 
     private static String describe(Exception error) {
