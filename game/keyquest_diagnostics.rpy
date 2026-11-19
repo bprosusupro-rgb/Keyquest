@@ -19,6 +19,11 @@ init python:
         last_focus = None
         android_activity = None
 
+        def __getstate__(self):
+            # Android handles and the live OCR/log session belong to this process.
+            return {}
+
+
     _keyquest_diagnostics = _KeyquestDiagnostics()
     _keyquest_log_limit = 192 * 1024
 

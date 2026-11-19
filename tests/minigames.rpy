@@ -6,6 +6,27 @@ default _test_dim_blank = False
 default _test_tiles = (1, 2, 3, 4, 5, 6, 7, 0, 8)
 
 init 999 python:
+    def _test_runtime_state_and_tile_crop():
+        import pickle
+        import threading
+        import pygame
+
+        for instance, field in ((_KeyquestScanState(), "activity"), (_KeyquestDiagnostics(), "android_activity"),
+                                (_KeyquestVisionWorker(), "libraries")):
+            setattr(instance, field, threading.Lock())
+            restored = pickle.loads(pickle.dumps(instance, pickle.HIGHEST_PROTOCOL))
+            assert not getattr(restored, field)
+
+        sample = pygame.Surface((800, 600))
+        sample.fill((0, 0, 0))
+        sample.fill((205, 180, 109), (100, 132, 600, 400))
+        sample.fill((0, 0, 0), (100, 132, 150, 100))
+        coarse = (0.101, 0.14, 0.895, 0.9)
+        bounds = _keyquest_refine_tile_bounds(sample, coarse, 4)
+        assert max(abs(a - b) for a, b in zip(bounds, (0.125, 0.22, 0.875, 532.0 / 600))) < 0.004
+        tiles, _, signatures = _keyquest_tile_scan(sample, bounds, 4)
+        assert tiles[0] == 0 and len(signatures[0]) == 25
+
     assert _keyquest_color_layout(((0, 0, 194), (214, 0, 0), (215, 207, 0), (1, 207, 0))) == (1, 0, 3, 2)
     dark_signatures = {0: ((0, 0, 0),) * 9, 1: ((19, 21, 25),) * 9, 2: ((220, 170, 80),) * 9}
     old_tiles, new_tiles = (1, 0, 2), (0, 1, 2)
@@ -97,6 +118,7 @@ init 999 python:
             renpy.store._test_dim_blank = True
 
 label start:
+    $ _test_runtime_state_and_tile_crop()
     $ persistent.keyquest_minigame_boards = {"colors": (0.17, 0.17, 0.64, 0.61), "tiles": (0.30, 0.31, 0.95, 0.94)}
     $ _keyquest_minigame.mode = "colors"
     show screen _kq_test_colors
@@ -151,9 +173,9 @@ label start:
     hide screen _keyquest_minigames
     $ _keyquest_set_tile_size(4)
     $ assert _keyquest_board() is None
-    $ persistent.keyquest_minigame_boards["tiles-4"] = (0.17, 0.17, 0.64, 0.61)
+    $ persistent.keyquest_minigame_boards["tiles-4"] = (0.15, 0.13, 0.667, 0.64)
     $ _test_tiles = _test_goal4[:14] + (0, 15)
-    show screen _kq_test_tiles(side=4)
+    show screen _kq_test_tiles(side=4, actual_bounds=(0.17, 0.17, 0.64, 0.61))
     $ renpy.pause(0.25, hard=True)
     $ _keyquest_begin_minigame("tile-scan")
     python:
@@ -163,6 +185,7 @@ label start:
             renpy.pause(0.3, hard=True)
     $ assert renpy.get_screen("_keyquest_tile_review") is not None, _keyquest_minigame.message
     $ assert len(_keyquest_minigame.tile_thumbnails) == 15
+    $ assert abs(_keyquest_minigame.tile_bounds[1] - 0.17) < 0.006
     $ tiles = _keyquest_minigame.tiles
     $ _keyquest_minigame.tile_goal = tiles[:14] + (tiles[15], 0)
     python:
@@ -195,7 +218,7 @@ label start:
     $ _test_tiles = (0,) + tuple(range(2, 17))
     $ renpy.pause(0.25, hard=True)
     python:
-        tiles, _, signatures = _keyquest_tile_scan(_keyquest_frame(), _keyquest_board(), 4)
+        tiles, _, signatures = _keyquest_tile_scan(_keyquest_frame(), _keyquest_minigame.tile_bounds, 4)
         _keyquest_minigame.tiles = tiles
         _keyquest_minigame.signatures = signatures
         _keyquest_minigame.tile_frame = None
@@ -229,8 +252,8 @@ screen _kq_test_flashes():
     timer 1.85 action SetVariable("_test_colors", ("#d60000", "#0000c2", "#01cf00", "#d7cf00"))
     timer 2.05 action Function(_keyquest_color_label, "minigame_repeat_pattern_interaction_phase_start", True)
 
-screen _kq_test_tiles(side=3):
-    $ bounds = _keyquest_board()
+screen _kq_test_tiles(side=3, actual_bounds=None):
+    $ bounds = actual_bounds or _keyquest_board()
     $ palette = ("#000", "#f99", "#9f9", "#99f", "#ff9", "#f9f", "#9ff", "#aaa", "#a92", "#845", "#585", "#395", "#123", "#746", "#376", "#ac3", "#bf3")
     for index, tile in enumerate(_test_tiles):
         $ point = _keyquest_board_point(bounds, side, index)

@@ -31,6 +31,7 @@ init python:
         pending = None
         tile_target = ()
         tile_frame = None
+        tile_bounds = None
         tile_seen = None
         tile_seen_count = 0
         tile_wait_until = 0.0
@@ -71,6 +72,7 @@ init python:
         if state.tile_side != side:
             _keyquest_stop_minigame()
             state.tile_side = side
+            state.tile_bounds = None
             state.moves = ()
             state.tile_goal = ()
             state.tile_thumbnails = {}
@@ -79,6 +81,7 @@ init python:
     def _keyquest_board_setup():
         state = _keyquest_minigame
         state.corner = None
+        state.tile_bounds = None
         state.moves = ()
         state.tile_goal = ()
         state.tile_thumbnails = {}
@@ -222,6 +225,7 @@ init python:
             for panel in ("_keyquest_keyboard", "_keyquest_values", "_keyquest_automation", "_keyquest_pick_target"):
                 renpy.hide_screen(panel)
         if job == "tile-scan":
+            state.tile_bounds = None
             state.tile_frame = None
             state.moves = ()
             state.tile_goal = ()
@@ -239,7 +243,8 @@ init python:
 
     def _keyquest_puzzle_click(index, side):
         import pygame
-        x, y = _keyquest_board_point(_keyquest_board(), side, index)
+        board = _keyquest_minigame.tile_bounds if side in (3, 4) else None
+        x, y = _keyquest_board_point(board or _keyquest_board(), side, index)
         point = tuple(map(int, renpy.display.draw.untranslate_point(int(x * config.screen_width), int(y * config.screen_height))))
         pygame.event.post(pygame.event.Event(pygame.MOUSEMOTION,
                          pos=point, rel=(0, 0), buttons=(0, 0, 0), touch=False, which=0))
@@ -363,7 +368,47 @@ init python:
                     queue.append(new)
         raise ValueError("Unable to solve the final four tiles.")
 
-    _keyquest_tile_centers = tuple((u, v) for v in (0.25, 0.5, 0.75) for u in (0.25, 0.5, 0.75))
+    def _keyquest_snap_tile_edge(frame, axis, edge, inward, span, cross_start, cross_end, side):
+        width, height = frame.get_size()
+        size, cross_size = (width, height) if axis == 0 else (height, width)
+        origin = int(edge * size)
+        radius = max(3, int(span * size / side * 0.46))
+        cross = tuple(int(cross_size * (cross_start + (cross_end - cross_start) * i / 26.0))
+                      for i in range(3, 24))
+        best = None
+        for point in range(max(3, origin - radius), min(size - 3, origin + radius + 1)):
+            transitions = 0
+            dark_outside = 0
+            for cross_pixel in cross:
+                outside = point - 2 * inward
+                inside = point + 2 * inward
+                before = max(frame.get_at((outside, cross_pixel) if axis == 0 else (cross_pixel, outside))[:3])
+                after = max(frame.get_at((inside, cross_pixel) if axis == 0 else (cross_pixel, inside))[:3])
+                if before <= 34:
+                    dark_outside += 1
+                    if after >= 74 and after - before >= 48:
+                        transitions += 1
+            if transitions * 2 >= len(cross) and dark_outside * 3 >= len(cross) * 2:
+                candidate = (transitions, -abs(point - origin), point)
+                if best is None or candidate > best:
+                    best = candidate
+        return best[2] / float(size) if best else edge
+
+    def _keyquest_refine_tile_bounds(frame, board, side):
+        left, top, right, bottom = board
+        width, height = right - left, bottom - top
+        bounds = (
+            _keyquest_snap_tile_edge(frame, 0, left, 1, width, top, bottom, side),
+            _keyquest_snap_tile_edge(frame, 1, top, 1, height, left, right, side),
+            _keyquest_snap_tile_edge(frame, 0, right, -1, width, top, bottom, side),
+            _keyquest_snap_tile_edge(frame, 1, bottom, -1, height, left, right, side),
+        )
+        return bounds if _keyquest_valid_board(bounds[:2], bounds[2:]) else board
+
+    def _keyquest_dark_tile(pixels, level, numerator, denominator):
+        return sum(max(pixel) <= level for pixel in pixels) * denominator >= len(pixels) * numerator
+
+    _keyquest_tile_centers = tuple((u, v) for v in (0.18, 0.34, 0.5, 0.66, 0.82) for u in (0.18, 0.34, 0.5, 0.66, 0.82))
     _keyquest_tile_edges = (
         tuple((i / 24.0, 0.035) for i in range(2, 23)),
         tuple((0.965, i / 24.0) for i in range(2, 23)),
@@ -377,7 +422,7 @@ init python:
     def _keyquest_tile_scan(frame, board, side=3):
         centers = tuple(_keyquest_cell_samples(frame, board, side, index, _keyquest_tile_centers)
                         for index in range(side * side))
-        empty = [index for index, points in enumerate(centers) if sum(max(p) <= 31 for p in points) >= 8]
+        empty = [index for index, points in enumerate(centers) if _keyquest_dark_tile(points, 31, 8, 9)]
         if len(empty) != 1:
             raise ValueError("A single dark empty slot was not found. Check the board corners.")
         tiles = tuple(index + 1 if index != empty[0] else 0 for index in range(side * side))
@@ -439,7 +484,7 @@ init python:
             left, top = int(a[0] * width), int(a[1] * height)
             right, bottom = int(b[0] * width), int(b[1] * height)
             piece = frame.subsurface((left, top, right - left, bottom - top))
-            piece = renpy.display.scale.smoothscale(piece, (86, 64))
+            piece = renpy.display.scale.smoothscale(piece, (120, 72))
             with io.BytesIO() as out:
                 renpy.display.module.save_png(piece, out, 0)
                 previews[tile] = im.Data(out.getvalue(), "keyquest-tile-%d-%d.png" % (generation, tile))
@@ -504,11 +549,13 @@ init python:
         images = []
         for index, tile in enumerate(tiles):
             if tile:
-                a = _keyquest_board_point(board, side, index, 0.35, 0.25)
-                b = _keyquest_board_point(board, side, index, 0.65, 0.75)
+                a = _keyquest_board_point(board, side, index, 0.27, 0.22)
+                b = _keyquest_board_point(board, side, index, 0.73, 0.78)
                 left, top = int(a[0] * width), int(a[1] * height)
                 piece = frame.subsurface((left, top, int(b[0] * width) - left, int(b[1] * height) - top))
-                piece = renpy.display.scale.smoothscale(piece, (110, 110))
+                piece_width, piece_height = piece.get_size()
+                scale = 160.0 / max(piece_width, piece_height)
+                piece = renpy.display.scale.smoothscale(piece, (max(1, int(piece_width * scale)), max(1, int(piece_height * scale))))
                 with io.BytesIO() as out:
                     renpy.display.module.save_png(piece, out, 0)
                     images.append((out.getvalue(), tile))
@@ -521,7 +568,10 @@ init python:
         if state.tile_busy or (renpy.android and _keyquest_vision.busy):
             return
         side = state.tile_side
-        frame, board = _keyquest_frame(), _keyquest_board()
+        frame, original = _keyquest_frame(), _keyquest_board()
+        board = _keyquest_refine_tile_bounds(frame, original, side)
+        state.tile_bounds = board
+        _keyquest_trace("tile_crop", original=original, bounds=board, frame=frame.get_size())
         tiles, edges, signatures = _keyquest_tile_scan(frame, board, side)
         generation = state.tile_generation
         if side == 4:
@@ -556,8 +606,10 @@ init python:
                                     break
                             labels.append((value, tile))
                         numbered = _keyquest_numbered_goal(labels, tiles, side)
-                    except Exception:
-                        pass
+                        recognized = [int(value) for value, _ in labels if value.isdigit() and 1 <= int(value) < side * side]
+                        _keyquest_trace("tile_labels", read=len(recognized), unique=len(set(recognized)), total=len(labels))
+                    except Exception as error:
+                        _keyquest_trace("tile_number_scan_failed", kind=type(error).__name__)
                     finally:
                         _keyquest_vision.busy = False
                 if numbered:
@@ -592,10 +644,11 @@ init python:
         return tuple(moved)
 
     def _keyquest_tile_appearance(colors, reference):
-        # Ignore the two largest local changes, such as a pointer covering a sample.
+        # Ignore the largest local changes, such as the pointer or a tile label.
         distances = sorted(sum(abs(a - b) for a, b in zip(pixel, original)) / 3.0
                            for pixel, original in zip(colors, reference))
-        return sum(distances[:-2]) / float(len(distances) - 2)
+        kept = len(distances) - len(distances) * 2 // 9
+        return sum(distances[:kept]) / float(kept)
 
     def _keyquest_tile_transition(samples, previous, current, expected):
         if previous is None:
@@ -613,15 +666,15 @@ init python:
         # before the tap, since calibration can sample a moved tile differently.
         moved = _keyquest_tile_appearance(samples[destination], previous[source])
         blank = _keyquest_tile_appearance(samples[source], previous[destination])
-        dark = sum(max(pixel) <= 42 for pixel in samples[source])
+        dark = _keyquest_dark_tile(samples[source], 42, 5, 9)
         if (changes[source] >= 10 and moved <= 48 and moved + 8 <= changes[destination]
-                and (dark >= 5 or blank + 8 <= changes[source]
+                and (dark or blank + 8 <= changes[source]
                      or (moved <= 18 and changes[source] >= 52))):
             return expected
         return None
 
     def _keyquest_observe_tiles(samples, signatures, current, expected):
-        empty = [index for index, pixels in enumerate(samples) if sum(max(p) <= 31 for p in pixels) >= 7]
+        empty = [index for index, pixels in enumerate(samples) if _keyquest_dark_tile(pixels, 31, 7, 9)]
         matching = []
         for board in (expected, current):
             if board is None or board.index(0) not in empty:
@@ -685,7 +738,7 @@ init python:
 
     def _keyquest_step_tiles(state, now):
         expected, until, retried = state.pending or (None, 0.0, False)
-        frame, board, side = _keyquest_frame(), _keyquest_board(), state.tile_side
+        frame, board, side = _keyquest_frame(), state.tile_bounds or _keyquest_board(), state.tile_side
         samples = tuple(_keyquest_cell_samples(frame, board, side, i, _keyquest_tile_centers)
                         for i in range(side * side))
         # Play can also resume after an interrupted verification. Check the
@@ -721,9 +774,9 @@ init python:
                                 tile_difference=int(_keyquest_tile_appearance(
                                     samples[destination], state.tile_frame[source])))
                 final_move = len(state.moves) == 1
-                message = ("Last move sent. Check the game result." if final_move
+                message = ("Last move sent. If the board is still open, tap Play to check it again." if final_move
                            else "The board could not be confirmed. Tap Play to check it again, or scan a new board.")
-                _keyquest_show_minigame(message, clear_moves=final_move)
+                _keyquest_show_minigame(message)
         elif stable:
             state.tile_wait_until = 0.0
             state.tile_frame = samples
@@ -880,7 +933,7 @@ screen _keyquest_tile_review():
                             action Function(_keyquest_review_tile, index)
                             add helper.tile_thumbnails[tile]
                     else:
-                        add Solid("#08131f") xysize (90, 68)
+                        add Solid("#08131f") xysize (124, 76)
         hbox:
             spacing 6
             textbutton "Plan moves" style "keyquest_deck_accent" sensitive (bool(helper.tile_goal) and helper.tile_number_order is None) action Function(_keyquest_confirm_layout)
@@ -909,9 +962,9 @@ screen _keyquest_minigame_run():
     timer (0.05 if helper.job == "watch" else 0.14) repeat True action Function(_keyquest_minigame_tick, _update_screens=False)
     if helper.job != "watch":
         $ size = (112, 48)
-        $ position = _keyquest_tile_stop_position(_keyquest_board(), config.screen_width, config.screen_height, *size)
+        $ position = _keyquest_tile_stop_position((helper.tile_bounds if helper.job.startswith("tile-") else None) or _keyquest_board(), config.screen_width, config.screen_height, *size)
         key "game_menu" action Function(_keyquest_show_minigame, "Stopped.")
-        if position is not None:
+        if position is not None and (helper.job != "tile-scan" or helper.tile_busy):
             textbutton "Stop" style "keyquest_deck_key" pos position xysize size action Function(_keyquest_show_minigame, "Stopped.")
     else:
         $ size = (284, 48)

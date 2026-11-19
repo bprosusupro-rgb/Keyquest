@@ -155,6 +155,11 @@ init python:
         unavailable = False
         response = None
 
+        def __getstate__(self):
+            # Android handles and the live OCR/log session belong to this process.
+            return {}
+
+
         def prepare(self, root):
             import ctypes
             import io

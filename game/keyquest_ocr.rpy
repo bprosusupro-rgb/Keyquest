@@ -27,6 +27,11 @@ init python:
         watch_misses = 0
         next_scan = 0.0
 
+        def __getstate__(self):
+            # Android handles and the live OCR/log session belong to this process.
+            return {}
+
+
     _keyquest_scan_state = _KeyquestScanState()
 
     def _keyquest_math_value(node):
