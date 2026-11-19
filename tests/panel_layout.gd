@@ -1,5 +1,13 @@
 extends SceneTree
 
+class KeyReceiver extends RefCounted:
+	var keys: Array[String] = []
+	var target := ""
+
+	func sendKey(package_name: String, key: String) -> void:
+		target = package_name
+		keys.append(key)
+
 func _initialize() -> void:
 	call_deferred("_check")
 
@@ -38,6 +46,9 @@ func _check() -> void:
 				quit(1)
 				return
 		tabs.current_tab = 0
+		var receiver := KeyReceiver.new()
+		panel.bridge = receiver
+		panel.package_field.text = "org.example.game"
 		panel.key_rows.get_child(0).get_child(0).pressed.emit()
 		panel.key_rows.get_child(3).get_child(0).pressed.emit()
 		panel.key_rows.get_child(0).get_child(1).pressed.emit()
@@ -50,6 +61,11 @@ func _check() -> void:
 			quit(1)
 			return
 		panel.key_rows.get_child(3).get_child(4).pressed.emit()
+		if receiver.target != "org.example.game" or receiver.keys != ["q", "W", " ", "1", "\b", "\n"]:
+			push_error("A key press did not immediately dispatch to the selected target")
+			quit(1)
+			return
+		panel.key_rows.get_child(3).get_child(5).pressed.emit()
 		if not panel.draft.text.is_empty():
 			push_error("Clear did not empty the draft")
 			quit(1)

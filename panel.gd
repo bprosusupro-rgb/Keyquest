@@ -12,6 +12,7 @@ const KEY_ROWS := ["qwertyuiop", "asdfghjkl", "zxcvbnm"]
 const SYMBOL_ROWS := ["1234567890", "@#%&?!:;_", "()[]+-=/"]
 
 var draft: LineEdit
+var keyboard_status: Label
 var key_rows: VBoxContainer
 var bridge_message := ""
 var shifted := false
@@ -103,10 +104,8 @@ func _ready() -> void:
 	key_rows.add_theme_constant_override("separation", 4)
 	keyboard.add_child(key_rows)
 	_draw_keys()
-	_label(keyboard, "Send switches to the selected game. Open its text prompt to receive your draft.", 16, MUTED)
-	_button(keyboard, "Send to game", _send_draft, true)
+	keyboard_status = _label(keyboard, "Open a text prompt in the selected game, then tap a key here.", 16, MUTED)
 	actions.erase(_button(keyboard, "Copy text", _copy_draft))
-	_button(keyboard, "Open keyboard overlay", _keyboard)
 
 	var macro := _page("Macros")
 	_label(macro, "Tap sequence", 26, TEXT)
@@ -310,7 +309,8 @@ func _draw_keys() -> void:
 		_draw_keys()
 	)
 	_key(tools, "Space", _type_key.bind(" "), 1.5)
-	_key(tools, "⌫", func() -> void: _set_draft(draft.text.left(-1)))
+	_key(tools, "⌫", _backspace)
+	_key(tools, "Enter", _dispatch_key.bind("\n"))
 	_key(tools, "Clear", func() -> void: _set_draft(""))
 
 
@@ -343,6 +343,7 @@ func _set_draft(value: String) -> void:
 
 
 func _type_key(value: String) -> void:
+	_dispatch_key(value)
 	if draft.text.length() < 500:
 		_set_draft(draft.text + value)
 	if shifted and not symbols:
@@ -350,14 +351,16 @@ func _type_key(value: String) -> void:
 		_draw_keys()
 
 
-func _send_draft() -> void:
-	if draft.text.is_empty():
-		bridge_message = "Type something first."
-		_refresh_status()
+func _backspace() -> void:
+	_set_draft(draft.text.left(-1))
+	_dispatch_key("\b")
+
+
+func _dispatch_key(value: String) -> void:
+	if bridge == null:
 		return
 	bridge_message = ""
-	bridge.sendText(package_field.text.strip_edges(), draft.text)
-	_refresh_status()
+	bridge.sendKey(package_field.text.strip_edges(), value)
 
 
 func _copy_draft() -> void:
@@ -366,12 +369,7 @@ func _copy_draft() -> void:
 	DisplayServer.clipboard_set(draft.text)
 	bridge_message = "Copied. Switch to the game and paste if it supports the clipboard."
 	status.text = bridge_message
-
-
-func _keyboard() -> void:
-	bridge_message = ""
-	bridge.openKeyboard(package_field.text.strip_edges())
-	_refresh_status()
+	keyboard_status.text = bridge_message
 
 
 func _run() -> void:
@@ -398,6 +396,7 @@ func _refresh_status() -> void:
 	readiness.add_theme_color_override("font_color", ACCENT if ready else MUTED)
 	service_button.text = "Accessibility settings" if ready else "Enable accessibility service"
 	status.text = bridge.getStatus() if bridge_message.is_empty() else bridge_message
+	keyboard_status.text = status.text
 	var point: String = bridge.takePoint()
 	if not point.is_empty():
 		var existing := steps.text.strip_edges()

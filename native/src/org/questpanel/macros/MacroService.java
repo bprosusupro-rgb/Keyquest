@@ -19,6 +19,7 @@ import android.os.SystemClock;
 import android.util.SparseArray;
 import android.view.Display;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
@@ -27,6 +28,7 @@ import android.view.accessibility.AccessibilityWindowInfo;
 import android.view.inputmethod.EditorInfo;
 import android.widget.TextView;
 import java.util.ArrayList;
+import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicReference;
@@ -43,7 +45,9 @@ public final class MacroService extends AccessibilityService {
     private TextView picker;
     private int generation;
 
-    private enum Mode { MACRO, PICK, OVERLAY, SEND_TEXT }
+    private enum Mode { MACRO, PICK, OVERLAY, SEND_KEY }
+    private final ArrayDeque<String> pendingKeys = new ArrayDeque<>();
+    private String keyTarget;
     private KeyboardOverlay keyboard;
 
     private static final class Step {
@@ -107,12 +111,18 @@ public final class MacroService extends AccessibilityService {
         arm(activity, target, "", 1, "", Mode.OVERLAY);
     }
 
-    void sendText(Activity activity, String target, String text) {
-        if (text.isEmpty() || text.length() > 500) {
-            stop("Enter between 1 and 500 characters.");
+    void sendKey(Activity activity, String target, String key) {
+        if (Build.VERSION.SDK_INT < 33) {
+            stop("Direct keys require Android 13 or newer.");
             return;
         }
-        arm(activity, target, "", 1, text, Mode.SEND_TEXT);
+        if (key.length() != 1) return;
+        if (target.equals(keyTarget) && pendingKeys.size() < 32) {
+            pendingKeys.addLast(key);
+            return;
+        }
+        if (target.equals(keyTarget)) return;
+        arm(activity, target, "", 1, key, Mode.SEND_KEY);
     }
 
     private void arm(Activity activity, String target, String coordinates, int repeats,
@@ -150,22 +160,24 @@ public final class MacroService extends AccessibilityService {
             return;
         }
 
-        status = "Waiting for " + target + ". Open its panel within 30 seconds.";
-        long deadline = SystemClock.uptimeMillis() + 30_000;
+        if (mode == Mode.SEND_KEY) {
+            keyTarget = target;
+            pendingKeys.addLast(payload);
+            Target current = findTarget(target, true);
+            if (current != null && deliverKeys(target, current.display)) return;
+        }
+        status = mode == Mode.SEND_KEY ? "Waiting for the game’s text prompt…"
+                : "Waiting for " + target + ". Open its panel within 30 seconds.";
+        long deadline = SystemClock.uptimeMillis() + (mode == Mode.SEND_KEY ? 5_000 : 30_000);
         int ticket = generation;
         operation = new Runnable() {
             @Override public void run() {
                 if (ticket != generation) return;
-                Target window = findTarget(target, mode == Mode.OVERLAY);
+                Target window = findTarget(target, mode == Mode.OVERLAY || mode == Mode.SEND_KEY);
                 if (window != null) {
-                    if (mode == Mode.SEND_TEXT) {
-                        InputMethod.AccessibilityInputConnection input = keyboardConnection(target, window.display);
-                        if (input != null) {
-                            input.commitText(payload, 1, null);
-                            stop("Text sent to the game.");
-                            return;
-                        }
-                        status = "Focus the game’s text prompt to send your draft.";
+                    if (mode == Mode.SEND_KEY) {
+                        if (deliverKeys(target, window.display)) return;
+                        status = "Focus the game’s text prompt.";
                     } else if (mode == Mode.PICK) {
                         showPicker(target, window);
                         return;
@@ -180,7 +192,7 @@ public final class MacroService extends AccessibilityService {
                     }
                 }
                 if (SystemClock.uptimeMillis() >= deadline) {
-                    stop(mode == Mode.SEND_TEXT ? "Text was not sent. Open a compatible text prompt and retry."
+                    stop(mode == Mode.SEND_KEY ? "Key not delivered. Open a compatible game text prompt and retry."
                             : "Target not detected. Confirm the app is focused and exposed to Android accessibility.");
                 } else {
                     handler.postDelayed(this, 250);
@@ -265,6 +277,22 @@ public final class MacroService extends AccessibilityService {
             }
         }, handler);
         if (!dispatched) stop("Android rejected the simulated tap on this display.");
+    }
+
+    private boolean deliverKeys(String target, int display) {
+        InputMethod.AccessibilityInputConnection input = keyboardConnection(target, display);
+        if (input == null) return false;
+        while (!pendingKeys.isEmpty()) {
+            String key = pendingKeys.removeFirst();
+            if ("\b".equals(key) || "\n".equals(key)) {
+                KeyboardOverlay.sendKeyEvent(input, "\b".equals(key)
+                        ? KeyEvent.KEYCODE_DEL : KeyEvent.KEYCODE_ENTER);
+            } else {
+                input.commitText(key, 1, null);
+            }
+        }
+        stop("Key sent to the game.");
+        return true;
     }
 
     private boolean enterText(String target, String payload) {
@@ -390,6 +418,8 @@ public final class MacroService extends AccessibilityService {
     }
 
     void stop(String reason) {
+        pendingKeys.clear();
+        keyTarget = null;
         generation++;
         if (operation != null) {
             handler.removeCallbacks(operation);

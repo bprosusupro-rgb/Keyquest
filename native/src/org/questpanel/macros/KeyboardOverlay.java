@@ -151,6 +151,10 @@ final class KeyboardOverlay {
             message.setText("Tap the game’s text field, then try again.");
             return;
         }
+        sendKeyEvent(input, code);
+    }
+
+    static void sendKeyEvent(InputMethod.AccessibilityInputConnection input, int code) {
         long now = SystemClock.uptimeMillis();
         int flags = KeyEvent.FLAG_SOFT_KEYBOARD | KeyEvent.FLAG_KEEP_TOUCH_MODE;
         input.sendKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_DOWN, code, 0, 0,

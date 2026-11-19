@@ -6,10 +6,10 @@ A Godot control panel and Android accessibility service for a sideloaded 2D game
 
 1. Sideload the signed ARM64 APK with SideQuest or `adb -d install -r QuestPanelMacros.apk`. The package name and signing key stay the same as v0.1.0.
 2. Open **Keyquest** under **Unknown Sources**. If the launcher does not show it, try `adb -d shell am start -n org.questpanel.macros/com.godot.game.GodotAppLauncher`.
-3. Select **Enable accessibility service**, then enable **Keyquest** in Android accessibility settings. **Open keyboard** and the macro controls also open system settings when the service is disabled. If Android offers **Allow restricted settings** in the app info menu, enable it for Keyquest, then return to the accessibility screen. The **Service connected** label confirms that Android started the service.
+3. Select **Enable accessibility service**, then enable **Keyquest** in Android accessibility settings. Macro controls also open system settings when the service is disabled. If Android offers **Allow restricted settings** in the app info menu, enable it for Keyquest, then return to the accessibility screen. The **Service connected** label confirms that Android started the service.
 4. Choose your installed game, or select **Enter package name** if it is missing.
-5. Tap the keys in Keyquest’s **Keyboard** tab. Select **Send to game**, then focus the game’s text prompt within 30 seconds. Keyquest sends your draft as a batch when the input connection is available. If the game does not open automatically, switch to it manually.
-6. Use **Copy text** if the game can paste from the clipboard. You can also choose **Open keyboard overlay** to type over a focused game on supported firmware.
+5. Open a text prompt in the game, then tap a key in Keyquest’s **Keyboard** tab. Each tap immediately attempts delivery, including **Backspace** and **Enter**. If the game lost focus, Keyquest attempts to bring it forward and retries for up to five seconds.
+6. Use **Copy text** if direct delivery is unavailable and the game supports paste. **Clear** clears the local preview.
 
 The in-app keys and copy action are available while the service is off. Direct delivery to the game needs the accessibility service, Android 13 or newer, and a compatible text input connection. Horizon OS may restrict target-window access. Some older or custom Ren’Py builds accept a physical keyboard while exposing no compatible Android text input connection.
 
