@@ -6,8 +6,8 @@ A Godot control panel and Android accessibility service for a sideloaded 2D game
 
 1. Sideload the signed ARM64 APK with SideQuest or `adb -d install -r QuestPanelMacros.apk`. The package name and signing key stay the same as v0.1.0.
 2. Open **Keyquest** under **Unknown Sources**. If the launcher does not show it, try `adb -d shell am start -n org.questpanel.macros/com.godot.game.GodotAppLauncher`.
-3. Select **Enable accessibility service**, then enable **Keyquest** in Android accessibility settings. **Open in-game keyboard** and the macro controls also open system settings when the service is disabled. If Android offers **Allow restricted settings** in the app info menu, enable it for Keyquest, then return to the accessibility screen. The **Service connected** label confirms that Android started the service.
-4. Choose your installed game or type its Android package name. Select **Open in-game keyboard**. If Keyquest cannot launch the game, switch to it within 30 seconds.
+3. Select **Enable accessibility service**, then enable **Keyquest** in Android accessibility settings. **Open keyboard** and the macro controls also open system settings when the service is disabled. If Android offers **Allow restricted settings** in the app info menu, enable it for Keyquest, then return to the accessibility screen. The **Service connected** label confirms that Android started the service.
+4. Choose your installed game, or select **Enter package name** if it is missing. Open the **Keyboard** tab and select **Open keyboard**. If Keyquest cannot launch the game, switch to it within 30 seconds.
 5. Focus a text prompt in the game and press a few keyboard keys. Use **Move up** or **Move down** if the keyboard covers the field. The keyboard closes when you switch to another app.
 
 Keyquest uses Android's accessibility input connection on Android 13 or newer. The keyboard provides letters, Shift, numbers, punctuation, Space, Backspace, and Enter. The target game must expose an Android text input connection while its prompt is active. An older or custom Ren’Py build can accept a physical keyboard while exposing no compatible input connection for this overlay. Horizon OS can also limit which Android windows and overlay types are available.
@@ -16,7 +16,7 @@ If the keyboard cannot send text, try a paired physical keyboard with the in-gam
 
 ## Tap macros
 
-Each line contains the horizontal position, vertical position, and the delay after that tap. Coordinates are percentages of the focused target window, measured from its top-left corner. Enter two or more lines for a sequence. Use one line with a repeat count above one for an auto-clicker.
+Open the **Macros** tab. Each line contains the horizontal position, vertical position, and the delay after that tap. Coordinates are percentages of the focused target window, measured from its top-left corner. Enter two or more lines for a sequence. Use one line with a repeat count above one for an auto-clicker.
 
 ```text
 50, 75, 500

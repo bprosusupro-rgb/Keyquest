@@ -3,10 +3,10 @@ extends Control
 const INK := Color("#0d1a16")
 const TEXT := Color("#edf6fb")
 const MUTED := Color("#abc0d2")
-const ACCENT := Color("#c4ff6a")
-const SURFACE := Color("#172438")
-const CONTROL := Color("#24364b")
-const OUTLINE := Color("#39506a")
+const ACCENT := Color("#92f3d2")
+const SURFACE := Color("#15212f")
+const CONTROL := Color("#223248")
+const OUTLINE := Color("#34475e")
 
 var bridge: Object
 var target := OptionButton.new()
@@ -18,78 +18,95 @@ var readiness: Label
 var packages := PackedStringArray()
 var text_payload := LineEdit.new()
 var actions: Array[Button] = []
+var service_button: Button
+var manual_button: Button
+var tabs: TabContainer
+var inset: MarginContainer
 
 
 func _ready() -> void:
 	theme = _make_theme()
-	var inset := MarginContainer.new()
+	inset = MarginContainer.new()
 	add_child(inset)
 	inset.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	for side in ["left", "right", "top", "bottom"]:
-		inset.add_theme_constant_override("margin_" + side, 28)
+	resized.connect(_fit_panel)
+	_fit_panel()
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.follow_focus = true
 	inset.add_child(scroll)
 	var column := VBoxContainer.new()
 	column.size_flags_horizontal = SIZE_EXPAND_FILL
-	column.add_theme_constant_override("separation", 16)
+	column.add_theme_constant_override("separation", 14)
 	scroll.add_child(column)
 
-	var title_row := HBoxContainer.new()
-	column.add_child(title_row)
-	var heading := _label(title_row, "Keyquest", 42, TEXT)
-	heading.size_flags_horizontal = SIZE_EXPAND_FILL
-	readiness = _label(title_row, "Android service unavailable", 16, MUTED)
-	readiness.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	var brand := HBoxContainer.new()
+	brand.add_theme_constant_override("separation", 12)
+	column.add_child(brand)
+	var logo := TextureRect.new()
+	logo.texture = preload("res://icon.png")
+	logo.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	logo.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	logo.custom_minimum_size = Vector2(48, 48)
+	brand.add_child(logo)
+	_label(brand, "Keyquest", 36, TEXT)
 
-	var launch := _card(column)
-	_label(launch, "Game keyboard", 26, TEXT)
-	_label(launch, "Choose a 2D game, open the keyboard, then focus the game’s text prompt.", 16, MUTED)
-	var target_row := HBoxContainer.new()
-	target_row.add_theme_constant_override("separation", 8)
-	launch.add_child(target_row)
-	target.size_flags_horizontal = SIZE_EXPAND_FILL
+	var setup := _card(column)
+	readiness = _label(setup, "Accessibility service unavailable", 16, MUTED)
+	service_button = _button(setup, "Accessibility settings", _settings)
+	_label(setup, "Target game", 19, TEXT)
 	target.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	target.custom_minimum_size.y = 46
-	target_row.add_child(target)
+	target.clip_text = true
+	target.custom_minimum_size.y = 52
+	setup.add_child(target)
 	target.item_selected.connect(_choose_target)
-	package_field.placeholder_text = "Android package if the game is missing"
-	package_field.custom_minimum_size.y = 46
-	package_field.size_flags_horizontal = SIZE_EXPAND_FILL
-	target_row.add_child(package_field)
-	var start := HBoxContainer.new()
-	start.add_theme_constant_override("separation", 8)
-	launch.add_child(start)
-	_button(start, "Open in-game keyboard", _keyboard, true)
-	_button(start, "Enable accessibility service", _settings)
+	manual_button = Button.new()
+	manual_button.text = "Enter package name"
+	manual_button.toggle_mode = true
+	manual_button.custom_minimum_size.y = 48
+	setup.add_child(manual_button)
+	package_field.placeholder_text = "com.example.game"
+	package_field.custom_minimum_size.y = 52
+	package_field.hide()
+	setup.add_child(package_field)
+	manual_button.toggled.connect(func(visible_field: bool) -> void:
+		package_field.visible = visible_field
+		if visible_field:
+			package_field.grab_focus()
+	)
 
-	var macro := _card(column)
-	_label(macro, "Tap macros", 26, TEXT)
-	_label(macro, "One step per line. Enter x%, y%, and the delay after the tap in ms.", 16, MUTED)
-	steps.custom_minimum_size.y = 74
+	tabs = TabContainer.new()
+	tabs.clip_tabs = true
+	tabs.add_theme_stylebox_override("panel", _style(SURFACE, OUTLINE))
+	column.add_child(tabs)
+
+	var keyboard := _page("Keyboard")
+	_label(keyboard, "Game keyboard", 26, TEXT)
+	_label(keyboard, "Open the keyboard, then select the text prompt in your game.", 16, MUTED)
+	_button(keyboard, "Open keyboard", _keyboard, true)
+
+	var macro := _page("Macros")
+	_label(macro, "Tap sequence", 26, TEXT)
+	_label(macro, "One step per line with x%, y%, and delay in milliseconds.", 16, MUTED)
+	steps.custom_minimum_size.y = 96
 	steps.text = "50, 50, 500"
 	macro.add_child(steps)
-	var fields := HBoxContainer.new()
-	fields.add_theme_constant_override("separation", 10)
-	macro.add_child(fields)
-	var repeats := _label(fields, "Repeats", 16, MUTED)
-	repeats.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_label(macro, "Repeat count", 16, MUTED)
 	repeat_count.min_value = 1
 	repeat_count.max_value = 100
 	repeat_count.value = 1
-	repeat_count.custom_minimum_size = Vector2(112, 44)
-	fields.add_child(repeat_count)
-	text_payload.placeholder_text = "Optional text to send after the taps"
-	text_payload.size_flags_horizontal = SIZE_EXPAND_FILL
-	fields.add_child(text_payload)
-	var controls := HBoxContainer.new()
-	controls.add_theme_constant_override("separation", 8)
-	macro.add_child(controls)
-	_button(controls, "Find tap point", _pick)
-	_button(controls, "Run macro", _run, true)
-	_button(controls, "Stop", _stop)
-	status = _label(column, "", 16, MUTED)
-	status.custom_minimum_size.y = 30
+	repeat_count.custom_minimum_size.y = 50
+	macro.add_child(repeat_count)
+	text_payload.placeholder_text = "Optional text after the taps"
+	text_payload.custom_minimum_size.y = 50
+	macro.add_child(text_payload)
+	_button(macro, "Find tap point", _pick)
+	_button(macro, "Run macro", _run, true)
+	_button(macro, "Stop", _stop)
+	tabs.tab_changed.connect(func(_index: int) -> void: tabs.update_minimum_size())
+	var feedback := _card(column)
+	status = _label(feedback, "", 16, MUTED)
+	status.custom_minimum_size.y = 24
 	if not Engine.has_singleton("QuestMacros"):
 		status.text = "Run on Android to connect to the accessibility service."
 		target.add_item("Choose an installed game")
@@ -107,10 +124,40 @@ func _ready() -> void:
 	_refresh_status()
 
 
+func _fit_panel() -> void:
+	var horizontal := maxi(16, int((size.x - 740.0) / 2.0))
+	for side in ["left", "right"]:
+		inset.add_theme_constant_override("margin_" + side, horizontal)
+	for side in ["top", "bottom"]:
+		inset.add_theme_constant_override("margin_" + side, 16)
+
+
+func _page(title: String) -> VBoxContainer:
+	var padding := MarginContainer.new()
+	padding.name = title
+	for side in ["left", "right", "top", "bottom"]:
+		padding.add_theme_constant_override("margin_" + side, 12)
+	tabs.add_child(padding)
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 10)
+	padding.add_child(content)
+	return content
+
+
 func _make_theme() -> Theme:
 	var ui := Theme.new()
 	ui.default_font_size = 18
 	ui.set_color("font_color", "Label", TEXT)
+	ui.set_stylebox("tab_selected", "TabContainer", _style(ACCENT))
+	ui.set_stylebox("tab_unselected", "TabContainer", _style(CONTROL))
+	ui.set_stylebox("tab_hovered", "TabContainer", _style(Color("#3c6270")))
+	ui.set_color("font_selected_color", "TabContainer", INK)
+	ui.set_color("font_unselected_color", "TabContainer", TEXT)
+	ui.set_constant("side_margin", "TabContainer", 12)
+	ui.set_stylebox("panel", "PopupMenu", _style(SURFACE, OUTLINE))
+	ui.set_stylebox("hover", "PopupMenu", _style(CONTROL))
+	ui.set_color("font_color", "PopupMenu", TEXT)
+	ui.set_constant("v_separation", "PopupMenu", 22)
 	for kind in ["Button", "OptionButton"]:
 		ui.set_stylebox("normal", kind, _style(CONTROL))
 		ui.set_stylebox("hover", kind, _style(Color("#33506a"), ACCENT))
@@ -160,20 +207,21 @@ func _card(parent: Container) -> VBoxContainer:
 	return contents
 
 
-func _button(parent: Container, caption: String, action: Callable, primary := false) -> void:
+func _button(parent: Container, caption: String, action: Callable, primary := false) -> Button:
 	var button := Button.new()
 	button.text = caption
-	button.custom_minimum_size.y = 46
+	button.custom_minimum_size.y = 52
 	button.size_flags_horizontal = SIZE_EXPAND_FILL
 	if primary:
 		button.add_theme_stylebox_override("normal", _style(ACCENT))
-		button.add_theme_stylebox_override("hover", _style(Color("#dcffb0"), ACCENT))
-		button.add_theme_stylebox_override("pressed", _style(Color("#99dd4a")))
+		button.add_theme_stylebox_override("hover", _style(Color("#c4ffeb"), ACCENT))
+		button.add_theme_stylebox_override("pressed", _style(Color("#6bd5b0")))
 		for state in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
 			button.add_theme_color_override(state, INK)
 	button.pressed.connect(action)
 	parent.add_child(button)
 	actions.append(button)
+	return button
 
 
 func _label(parent: Container, caption: String, size: int, color: Color) -> Label:
@@ -209,6 +257,12 @@ func _load_macro() -> void:
 	var saved = JSON.parse_string(bridge.loadMacro())
 	if saved is Dictionary and not saved.is_empty():
 		package_field.text = saved.package
+		var previous := packages.find(saved.package)
+		if previous >= 0:
+			target.select(previous + 1)
+		else:
+			manual_button.set_pressed_no_signal(true)
+			package_field.show()
 		steps.text = saved.steps
 		repeat_count.value = saved.repeats
 
@@ -237,6 +291,7 @@ func _refresh_status() -> void:
 	var ready: bool = bridge.isServiceReady()
 	readiness.text = "Service connected" if ready else "Service disabled"
 	readiness.add_theme_color_override("font_color", ACCENT if ready else MUTED)
+	service_button.text = "Accessibility settings" if ready else "Enable accessibility service"
 	status.text = bridge.getStatus()
 	var point: String = bridge.takePoint()
 	if not point.is_empty():

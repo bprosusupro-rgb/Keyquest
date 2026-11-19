@@ -18,9 +18,9 @@ import android.widget.TextView;
 import java.util.function.Supplier;
 
 final class KeyboardOverlay {
-    private static final int PANEL = Color.rgb(15, 24, 37);
-    private static final int KEY = Color.rgb(39, 56, 77);
-    private static final int ACCENT = Color.rgb(196, 255, 106);
+    private static final int PANEL = Color.rgb(21, 33, 47);
+    private static final int KEY = Color.rgb(34, 50, 72);
+    private static final int ACCENT = Color.rgb(146, 243, 210);
     private static final int INK = Color.rgb(13, 26, 22);
     private static final int FOREGROUND = Color.rgb(237, 246, 251);
     private static final int MUTED = Color.rgb(171, 192, 210);
