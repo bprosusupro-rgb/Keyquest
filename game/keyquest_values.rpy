@@ -38,12 +38,12 @@ screen _keyquest_values():
         at Transform(zoom=min(1.0, config.screen_width / 620.0))
         xsize 565
         padding (20, 16)
-        background Solid("#f5f8fff8")
+        background Frame("keyquest_sheet.png", 24, 24)
         vbox:
             spacing 8
             hbox:
                 spacing 12
-                text "Local game values" color "#152538" size 30
+                text "Game values" color "#152538" size 30
                 textbutton "Keys" style "keyquest_key" action Show("_keyquest_keyboard")
                 textbutton "Close" style "keyquest_key" action Hide("_keyquest_values")
             if suggestions:

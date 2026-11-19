@@ -20,10 +20,11 @@ default persistent.keyquest_quick_one = "s"
 default persistent.keyquest_quick_two = "i"
 
 style keyquest_key is button:
-    background Solid("#edf3fb")
-    hover_background Solid("#b8f1e3")
+    background Frame("keyquest_key.png", 12, 12)
+    hover_background Frame("keyquest_key_focus.png", 12, 12)
+    selected_background Frame("keyquest_key_focus.png", 12, 12)
     padding (14, 9)
-    yminimum 44
+    yminimum 48
 
 style keyquest_key_text is button_text:
     color "#152538"
@@ -36,6 +37,7 @@ screen _keyquest_launcher():
         background None
         padding (4, 4)
         action ToggleScreen("_keyquest_keyboard")
+        alt "Keyquest keyboard"
         alternate (ToggleScreen("_keyquest_values") if renpy.has_screen("_keyquest_values") else NullAction())
         add "keyquest_logo.png" xysize (max(44, min(68, config.screen_width // 16)), max(44, min(68, config.screen_width // 16)))
 
@@ -45,12 +47,13 @@ screen _keyquest_keyboard():
     default settings_open = False
     default editing_slot = 1
     frame:
-        background Solid("#23483df8" if persistent.keyquest_light_accent else "#101e2af8")
+        background Frame("keyquest_panel_mint.png" if persistent.keyquest_light_accent else "keyquest_panel.png", 24, 24)
         at Transform(zoom=min(1.0, config.screen_width / 650.0) * (0.78 if persistent.keyquest_compact else 1.0))
-        padding (16, 12)
+        padding (18, 16)
         align (0.5, 0.96 if not persistent.keyquest_top else 0.12)
         vbox:
-            spacing 6
+            spacing 8
+            text ("Keyboard settings" if settings_open else "Keyboard") color "#eff8ff" size 26
             hbox:
                 spacing 6
                 for quick in (persistent.keyquest_quick_one, persistent.keyquest_quick_two):

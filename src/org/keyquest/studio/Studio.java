@@ -6,15 +6,14 @@ import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.ResolveInfo;
 import android.content.res.ColorStateList;
-import android.graphics.Color;
 import android.graphics.Typeface;
-import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
 import android.view.Gravity;
 import android.view.View;
+import android.view.WindowInsets;
 import android.widget.*;
 import com.android.apksig.ApkSigner;
 import java.io.*;
@@ -23,13 +22,10 @@ import java.security.KeyStore;
 import java.security.cert.X509Certificate;
 import java.util.*;
 
+import static org.keyquest.studio.StudioStyle.*;
+
 public final class Studio extends Activity {
     private static final int OPEN = 1;
-    private static final int BG = Color.rgb(11, 18, 29);
-    private static final int PANEL = Color.rgb(23, 36, 53);
-    private static final int WHITE = Color.rgb(240, 248, 253);
-    private static final int MUTED = Color.rgb(166, 188, 210);
-    private static final int MINT = Color.rgb(151, 242, 210);
     private TextView selection, status;
     private Button browse, installed, build, save;
     private ProgressBar progress;
@@ -41,11 +37,16 @@ public final class Studio extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        getWindow().setStatusBarColor(BG);
-        getWindow().setNavigationBarColor(BG);
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        scroll.setBackgroundColor(BG);
+        scroll.setClipToPadding(false);
+        scroll.setBackground(StudioStyle.backdrop());
+        scroll.setOnApplyWindowInsetsListener((view, insets) -> {
+            android.graphics.Insets safe = insets.getInsets(
+                    WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+            view.setPadding(safe.left, safe.top, safe.right, safe.bottom);
+            return insets;
+        });
         LinearLayout column = stack();
         column.setPadding(dp(24), dp(24), dp(24), dp(24));
         scroll.addView(column);
@@ -59,35 +60,36 @@ public final class Studio extends Activity {
         LinearLayout.LayoutParams logoLayout = new LinearLayout.LayoutParams(dp(58), dp(58));
         logoLayout.rightMargin = dp(12);
         brand.addView(logo, logoLayout);
-        label(brand, "Keyquest Studio", 32, WHITE, true);
-        label(column, "Put a keyboard inside your Ren’Py game.", 17, MUTED, false);
+        LinearLayout brandText = stack();
+        brand.addView(brandText, new LinearLayout.LayoutParams(0, -2, 1));
+        label(brandText, "Keyquest Studio", 32, TEXT, true);
+        label(brandText, "Add an in-game keyboard to a Ren’Py APK.", 16, MUTED, false);
 
-        LinearLayout inputs = card(column);
-        label(inputs, "Game source", 22, WHITE, true);
+        LinearLayout workspace = stack();
+        column.addView(workspace);
+        LinearLayout inputs = card(workspace);
+        heading(inputs, "Game source");
+        selection = label(inputs, "No game selected", 16, MUTED, false);
+        selection.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         browse = button(inputs, "Choose APK file", false, view -> pickApk());
         installed = button(inputs, "Choose installed game", false, view -> pickInstalled());
-        selection = label(inputs, "No game selected", 15, MUTED, false);
 
-        LinearLayout output = card(column);
-        label(output, "Build", 22, WHITE, true);
-        profile = new CheckBox(this);
-        profile.setText("My game uses Ren’Py 8.4.1");
-        profile.setTextColor(WHITE);
-        profile.setTextSize(16);
-        profile.setButtonTintList(ColorStateList.valueOf(MINT));
-        output.addView(profile);
-        valuesAddon = new CheckBox(this);
-        valuesAddon.setText("Add local game value editor");
-        valuesAddon.setTextColor(WHITE);
-        valuesAddon.setTextSize(16);
-        valuesAddon.setButtonTintList(ColorStateList.valueOf(MINT));
-        output.addView(valuesAddon);
-        label(output, "Saves a separately signed APK. Back up your saves before replacing the installed game.", 15, MUTED, false);
-        build = button(output, "Build keyboard APK", true, view -> confirmBuild());
+        LinearLayout output = card(workspace);
+        heading(output, "Build keyboard APK");
+        profile = option(output, "My game uses Ren’Py 8.4.1");
+        valuesAddon = option(output, "Include local value editor");
+        label(output, "Back up game saves before installing the re-signed copy.", 14, MUTED, false);
+        build = button(output, "Build APK", true, view -> confirmBuild());
         save = button(output, "Save to Downloads", true, view -> saveToDownloads());
-        progress = new ProgressBar(this);
-        output.addView(progress, new LinearLayout.LayoutParams(-1, dp(32)));
+        progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        progress.setIndeterminate(true);
+        progress.setIndeterminateTintList(ColorStateList.valueOf(ACCENT));
+        output.addView(progress, new LinearLayout.LayoutParams(-1, dp(14)));
         status = label(output, "", 15, MUTED, false);
+        status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        workspace.addOnLayoutChangeListener((view, left, top, right, bottom,
+                oldLeft, oldTop, oldRight, oldBottom) -> arrange(workspace, inputs, output, right - left));
+
         profile.setOnCheckedChangeListener((view, checked) -> refresh());
         refresh();
     }
@@ -166,7 +168,10 @@ public final class Studio extends Activity {
                 result = File.createTempFile("keyboard-", ".apk", getCacheDir());
                 Map<String, byte[]> gameAssets = new LinkedHashMap<>();
                 gameAssets.put("assets/x-game/x-keyquest_overlay.rpyc", readAsset("keyquest_8_4_1.rpyc"));
-                gameAssets.put("assets/x-game/x-keyquest_logo.png", readAsset("keyquest_logo.png"));
+                for (String artwork : new String[]{"logo", "panel", "panel_mint", "key", "key_focus", "sheet"}) {
+                    String filename = "keyquest_" + artwork + ".png";
+                    gameAssets.put("assets/x-game/x-" + filename, readAsset(filename));
+                }
                 if (includeValues) {
                     gameAssets.put("assets/x-game/x-keyquest_values.rpyc", readAsset("keyquest_values_8_4_1.rpyc"));
                 }
@@ -287,6 +292,7 @@ public final class Studio extends Activity {
         build.setEnabled(!busy && profile.isChecked() && (sourceUri != null || sourcePath != null));
         save.setVisibility(ready == null ? View.GONE : View.VISIBLE);
         save.setEnabled(!busy);
+        build.setVisibility(ready == null ? View.VISIBLE : View.GONE);
         progress.setVisibility(busy ? View.VISIBLE : View.GONE);
     }
 
@@ -302,12 +308,40 @@ public final class Studio extends Activity {
 
     private LinearLayout card(LinearLayout parent) {
         LinearLayout card = stack();
-        card.setPadding(dp(16), dp(16), dp(16), dp(16));
-        card.setBackground(shape(PANEL, 18));
+        card.setPadding(dp(20), dp(16), dp(20), dp(20));
+        card.setBackground(surface(PANEL, dp(24), dp(1), BORDER));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
         params.topMargin = dp(16);
         parent.addView(card, params);
         return card;
+    }
+
+    private void arrange(LinearLayout workspace, LinearLayout source, LinearLayout output, int width) {
+        boolean wide = width >= dp(700);
+        int direction = wide ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL;
+        if (workspace.getOrientation() == direction) return;
+        workspace.setOrientation(direction);
+        for (LinearLayout card : new LinearLayout[]{source, output}) {
+            LinearLayout.LayoutParams layout = new LinearLayout.LayoutParams(wide ? 0 : -1, -2, wide ? 1 : 0);
+            layout.topMargin = dp(20);
+            if (wide && card == source) layout.rightMargin = dp(16);
+            card.setLayoutParams(layout);
+        }
+    }
+
+    private void heading(LinearLayout parent, String title) {
+        label(parent, title, 22, TEXT, true).setAccessibilityHeading(true);
+    }
+
+    private CheckBox option(LinearLayout parent, String title) {
+        CheckBox check = new CheckBox(this);
+        check.setText(title);
+        check.setTextColor(TEXT);
+        check.setTextSize(16);
+        check.setMinHeight(dp(48));
+        check.setButtonTintList(ColorStateList.valueOf(ACCENT));
+        parent.addView(check);
+        return check;
     }
 
     private TextView label(LinearLayout parent, String value, int size, int color, boolean bold) {
@@ -326,23 +360,15 @@ public final class Studio extends Activity {
         button.setAllCaps(false);
         button.setText(value);
         button.setTextSize(16);
-        button.setTextColor(primary ? BG : WHITE);
+        button.setTextColor(new ColorStateList(new int[][]{{-android.R.attr.state_enabled}, {}},
+                new int[]{MUTED, primary ? BACKGROUND : TEXT}));
         button.setGravity(Gravity.CENTER);
-        button.setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x445fbca8),
-                shape(primary ? MINT : 0xff30445e, 12), null));
+        button.setBackground(StudioStyle.button(primary, dp(16), dp(1)));
         button.setOnClickListener(action);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(52));
         params.topMargin = dp(8);
         parent.addView(button, params);
-        button.addOnLayoutChangeListener((view, a, b, c, d, e, f, g, h) -> view.setAlpha(view.isEnabled() ? 1f : .55f));
         return button;
-    }
-
-    private GradientDrawable shape(int color, int radius) {
-        GradientDrawable result = new GradientDrawable();
-        result.setColor(color);
-        result.setCornerRadius(dp(radius));
-        return result;
     }
 
     private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
