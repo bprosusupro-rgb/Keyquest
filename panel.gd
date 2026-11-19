@@ -49,7 +49,10 @@ func _ready() -> void:
 	logo.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	logo.custom_minimum_size = Vector2(48, 48)
 	brand.add_child(logo)
-	_label(brand, "Keyquest", 36, TEXT)
+	var title := _label(brand, "Keyquest", 36, TEXT)
+	title.autowrap_mode = TextServer.AUTOWRAP_OFF
+	title.size_flags_horizontal = SIZE_EXPAND_FILL
+	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 
 	var setup := _card(column)
 	readiness = _label(setup, "Accessibility service unavailable", 16, MUTED)
