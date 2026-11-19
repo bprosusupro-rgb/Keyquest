@@ -71,7 +71,7 @@ init python:
         marked, unmarked = set(), set()
         for line in text.splitlines():
             line = _kq_re.sub(r"^\s*(?:solve|calculate|what\s+is|rechne|berechne)(?:\s*:\s*|\s+)", "", line, flags=_kq_re.I).strip()
-            ending = _kq_re.search(r"\s*(?:=\s*\??|\?)\s*$", line)
+            ending = _kq_re.search(u"\\s*(?:=\\s*[?_□▯]*|[?_□▯]+)\\s*$", line)
             expression = line[:ending.start()].strip() if ending else line
             if (len(expression) <= 64 and _kq_re.match(r"^[0-9.()+*/ \t-]+\Z", expression)
                     and _kq_re.search(r"[\d.)]\s*[+*/-]", expression)):
@@ -174,11 +174,11 @@ init python:
             else:
                 renpy.session[key] = previous
 
-    def _keyquest_prompt_words(text):
+    def _keyquest_prompt_words(text, minimum=5):
         text = renpy.filter_text_tags(text, allow=[])
         text = _kq_re.split(r"\s*\(?type\s+the\s+(?:line|sentence)\s+above\b", text, 1, flags=_kq_re.I)[0]
         text = _kq_re.sub(r"[ \t]*[\r\n]+[ \t]*", " ", text.strip())
-        if 5 <= len(text.split()) and len(text) <= 512 and text.rstrip(u'"”’').rstrip("'").endswith((".", "!", "?")):
+        if minimum <= len(text.split()) and len(text) <= 512 and text.rstrip(u'"”’').rstrip("'").endswith((".", "!", "?")):
             return text
         return None
 
@@ -239,18 +239,75 @@ init python:
             if raw is not None:
                 texts = [renpy.substitutions.substitute(raw, scope=scope)[0]]
             for line in texts:
-                sentence = _keyquest_prompt_words(line)
+                sentence = _keyquest_prompt_words(line, 3 if renpy.session.get("keyquest_typing_round") else 5)
                 if sentence:
                     choices.add(sentence)
         if len(inputs) == 1 and len(choices) == 1:
             return choices.pop(), next(iter(inputs.values()))
         return None, None
 
+    def _keyquest_review_sentence(text):
+        candidates = set()
+        for line in text.splitlines():
+            if _kq_re.match(r"^\W*(?:(?:back|skip|auto|menu)\W*)+$", line, _kq_re.I):
+                continue
+            line = _kq_re.sub(r"^\s*4\s+(?=[A-Z])", "", line)
+            sentence = _keyquest_prompt_words(line, 3)
+            if sentence:
+                candidates.add(sentence)
+        return candidates.pop() if len(candidates) == 1 else None
+
+    def _keyquest_live_math_answer():
+        lines = []
+        for root in renpy.game.context().scene_lists.get_all_displayables(current=True):
+            fragments = [_keyquest_drawn_text(item) for item in _keyquest_display_tree(root)
+                         if isinstance(item, renpy.text.text.Text) and not isinstance(item, renpy.display.behavior.Input)]
+            lines.extend(fragments)
+            for mark in _kq_re.finditer(u"(?:^|\\s)([0-9(][0-9.() xX×·+−*/÷-]{2,62}\\s*=\\s*[?_□▯]*)", u" ".join(fragments)):
+                lines.append(mark.group(1))
+        return _keyquest_math_answer(u"\n".join(lines), True)
+
+    def _keyquest_editable_fields():
+        fields = {}
+        for root in renpy.game.context().scene_lists.get_all_displayables(current=True):
+            for item in _keyquest_display_tree(root):
+                if (isinstance(item, renpy.display.behavior.Input) and item.editable
+                        and not getattr(item, "mask", None)):
+                    fields[id(item)] = item
+        return fields
+
+    def _keyquest_write_result(text):
+        if not _keyquest_game_has_focus():
+            return
+        fields = _keyquest_editable_fields()
+        if len(fields) > 1:
+            _keyquest_ocr_return("More than one field is open. Open just the answer field and try again.")
+            return
+        if fields:
+            _keyquest_replace_field(next(iter(fields.values())), text)
+        else:
+            # Some games process SDL input without exposing a Ren'Py Input widget.
+            _keyquest_insert_text(text)
+            _keyquest_ocr_reset()
+            renpy.restart_interaction()
+
+    def _keyquest_write_live_answer():
+        state = _keyquest_scan_state
+        answer = _keyquest_live_math_answer()
+        if answer is None and state.watch_source != "game-math" and not state.watch_misses:
+            if _kq_time.time() - state.watch_confirmed <= _keyquest_watch_expiry():
+                answer = state.watch_value
+        if answer is not None:
+            _keyquest_write_result(answer)
+
     def _keyquest_type_prompt(text):
         current, field = _keyquest_visible_prompt()
         if current != text or field is None:
             _keyquest_ocr_return("The prompt changed. Open the current round and try again.")
             return
+        _keyquest_replace_field(field, text)
+
+    def _keyquest_replace_field(field, text):
         if ((field.length and len(text) > field.length)
                 or any(field.allow and (not field.allow.search(c) if hasattr(field.allow, "search") else c not in field.allow)
                        or field.exclude and (field.exclude.search(c) if hasattr(field.exclude, "search") else c in field.exclude)
@@ -285,6 +342,15 @@ init python:
                     _keyquest_type_prompt(prompt)
                 else:
                     renpy.show_screen("_keyquest_ocr_result", mode=mode, region=region, result=prompt, from_game=True)
+                    renpy.restart_interaction()
+                return
+        if mode == "math":
+            answer = _keyquest_live_math_answer()
+            if answer is not None:
+                if destination == "type":
+                    _keyquest_write_result(answer)
+                else:
+                    renpy.show_screen("_keyquest_ocr_result", mode=mode, region=region, result=answer)
                     renpy.restart_interaction()
                 return
         if not renpy.android:
@@ -478,9 +544,14 @@ init python:
             _keyquest_trace("ocr_retry", region=state.pass_region)
             _keyquest_ocr_capture_frame()
             return
+        reviewed = False
+        if state.mode == "text" and not prompt and state.region in ("full", "typing", "bottom"):
+            if state.region == "typing" or renpy.session.get("keyquest_typing_round"):
+                prompt = _keyquest_review_sentence(text or u"") or _keyquest_review_sentence(state.first_text or u"")
+                reviewed = bool(prompt)
         if state.mode == "text" and state.region == "full" and prompt is None and state.first_text:
             text, error = state.first_text, None
-        if error or not text:
+        if (error or not text) and not prompt:
             _keyquest_ocr_return(error or "No text found. Try a smaller scan area.")
             return
         if state.mode == "keys":
@@ -498,21 +569,18 @@ init python:
         else:
             output = prompt
             if output is None:
-                if state.region == "typing":
-                    candidates = set(filter(None, (_keyquest_prompt_words(line) for line in text.splitlines())))
-                    if len(candidates) != 1:
-                        _keyquest_ocr_return("Could not isolate the typing prompt. Keep the entire box visible and scan again.")
-                        return
-                    output = candidates.pop()
+                if state.region == "typing" or (state.destination == "type" and renpy.session.get("keyquest_typing_round")):
+                    _keyquest_ocr_return("Could not isolate the typing prompt. Keep the entire box visible and scan again.")
+                    return
                 else:
                     output = text.strip() if state.destination == "show" else u" ".join(text.split())
         _keyquest_ocr_reset()
-        if state.destination == "show" or (state.mode == "text" and state.region == "typing"):
+        if state.destination == "show" or reviewed or (state.mode == "text" and state.region == "typing"):
             renpy.show_screen("_keyquest_ocr_result", mode=state.mode, region=state.region, result=output)
             renpy.restart_interaction()
             return
         try:
-            _keyquest_insert_text(output)
+            _keyquest_write_result(output)
         except Exception as failure:
             _keyquest_trace("ocr_error", stage="text_input")
             renpy.log("Keyquest text input: " + repr(failure))
@@ -537,6 +605,8 @@ init python:
         renpy.restart_interaction()
 
     def _keyquest_race_label(name, abnormal):
+        if name.startswith("minigame_") and not name.startswith("minigame_stopwatch") and name != "minigame_countdown":
+            renpy.session["keyquest_typing_round"] = name == "minigame_typing_round"
         state = _keyquest_scan_state
         if state.watch == "keys" and state.region == "race" and name in (
                 "minigame_racing_lose", "minigame_racing_win", "minigame_racing_result"):
@@ -550,7 +620,7 @@ init python:
         state.region = region
         state.destination = "show"
         state.repeat_settings = repeat_settings
-        if mode != "keys" and (not renpy.android or not renpy.loadable("keyquest_vision.zip") or _keyquest_vision.unavailable):
+        if mode not in ("keys", "math") and (not renpy.android or not renpy.loadable("keyquest_vision.zip") or _keyquest_vision.unavailable):
             _keyquest_ocr_return("Live OCR is unavailable here. One-shot scanning is still available on Android.")
             return
         state.watch = mode
@@ -576,6 +646,10 @@ init python:
                     return
             else:
                 state.watch_misses = 0
+        elif state.watch == "math":
+            state.watch_misses = state.watch_misses + 1 if value is None else 0
+            if state.watch_misses == 1 and now - state.watch_confirmed <= _keyquest_watch_expiry():
+                return
         if value is not None:
             state.watch_confirmed = now
         if value != state.watch_value:
@@ -618,6 +692,22 @@ init python:
                 state.next_scan = now
                 state.watch_confirmed = 0.0
                 _keyquest_watch_apply(u"", now)
+        if state.watch == "math":
+            answer = _keyquest_live_math_answer()
+            if answer is not None:
+                if state.watch_source != "game-math":
+                    state.request += 1
+                    state.watch_source = "game-math"
+                state.watch_confirmed = now
+                state.watch_misses = 0
+                if answer != state.watch_value:
+                    state.watch_value = answer
+                    renpy.restart_interaction()
+                return
+            if state.watch_source == "game-math":
+                state.watch_source = None
+                state.watch_confirmed = 0.0
+                state.next_scan = now
         response = _keyquest_vision.response
         if response is not None and response[0] == state.request:
             _keyquest_vision.response = None
@@ -808,8 +898,8 @@ screen _keyquest_ocr_result(mode, region, result, from_game=False):
             spacing 6
             if from_game:
                 textbutton "Type exact prompt" style "keyquest_deck_accent" action Function(_keyquest_type_prompt, result)
-            elif mode == "text" and region == "typing":
-                textbutton "Type reviewed text" style "keyquest_deck_key" action [Hide("_keyquest_ocr_result"), Function(_keyquest_insert_text, result)]
+            else:
+                textbutton ("Type answer" if mode == "math" else "Type text") style "keyquest_deck_accent" action Function(_keyquest_write_result, u" ".join(result.split()))
             textbutton "Scan again" style "keyquest_deck_key" action Function(_keyquest_ocr_begin, mode, region, "show")
             textbutton "Close" style "keyquest_deck_key" action Hide("_keyquest_ocr_result")
 
@@ -852,6 +942,8 @@ screen _keyquest_live_ocr():
                 text caption color "#eff8ff" size 22 yalign 0.5 xmaximum 270
             else:
                 text "Watching…" color "#b9d3e8" size 20 yalign 0.5
+            if live.watch == "math" and live.watch_value is not None:
+                textbutton "Type answer" style "keyquest_deck_accent" action Function(_keyquest_write_live_answer)
             if live.watch == "keys":
                 textbutton "Set keys" style "keyquest_deck_key" action Function(_keyquest_race_edit_keys)
             textbutton "Stop" style "keyquest_deck_key" action Function(_keyquest_ocr_reset)

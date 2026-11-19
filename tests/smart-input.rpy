@@ -15,6 +15,7 @@ init 999 python:
     assert _keyquest_math_answer(u"7 X 8", True) == "56"
     assert _keyquest_math_answer(u"21 - 6\n7 · 8 = ?") == "56"
     assert _keyquest_math_answer(u"3 4 + 5 = ?") is None
+    assert _keyquest_math_answer(u"6 × 7 = □", True) == "42"
     assert _keyquest_read_key_cue(u"Press S and m rapidly!") == ("s", "m")
     assert _keyquest_read_key_cue(u"| Press S andrn rapidly!") == ("s", "m")
     assert _keyquest_read_key_cue(u"Press S and rapidly!") is None
@@ -31,6 +32,7 @@ init 999 python:
     assert _keyquest_read_typing_prompt(typing_noise) == typing_prompt
     assert _keyquest_read_typing_prompt(u"4 apples.\n(Type the line above exactly as shown.)") == u"4 apples."
     assert _keyquest_read_typing_prompt(u"Text without the instruction.") is None
+    assert _keyquest_review_sentence(u"4 The combat was hate-inspiring.\n\nSkip Auto) Menu!") == u"The combat was hate-inspiring."
     wrapped_prompt = u"0/7\nThe single player was not\nworthy of any praise.\n(Type the line above exactly as shown, then press enter.)"
     assert _keyquest_read_typing_prompt(wrapped_prompt) == typing_prompt
     assert _keyquest_read_typing_prompt(wrapped_prompt.replace("not\nworthy", "not\n\nworthy")) == typing_prompt
@@ -147,6 +149,12 @@ label start:
     call screen _keyquest_test_custom_prompt
     $ assert _return == exact_prompt, _return
     $ print("Keyquest read a custom typing screen directly.")
+    call screen _keyquest_test_reviewed_typing
+    $ assert _return == u"The combat was hate-inspiring.", _return
+    $ print("Keyquest cleaned the full-screen OCR preview and typed the reviewed sentence.")
+    call screen _keyquest_test_math_field
+    $ assert _return == "42", _return
+    $ print("Keyquest solved and filled the live math answer.")
     $ observed_keys = []
     show screen _keyquest_test_key_order
     show screen _keyquest_test_race_cue
@@ -217,6 +225,38 @@ screen _keyquest_test_custom_prompt():
         input default "Misspelled text"
     timer 0.25 action Function(_keyquest_ocr_begin, "text", "typing", "type")
     timer 0.75 action Function(_keyquest_press, "RETURN", _update_screens=False)
+
+screen _keyquest_test_math_field():
+    vbox:
+        text "6 × 7 = □"
+        input default "0" allow "0123456789"
+    timer 0.25 action Function(_keyquest_watch_start, "math", "full")
+    timer 0.50 action Function(_keyquest_write_live_answer)
+    timer 0.75 action Function(_keyquest_press, "RETURN", _update_screens=False)
+
+screen _keyquest_test_reviewed_typing():
+    input default "Partial text"
+    timer 0.25 action Function(_keyquest_test_review_result)
+    timer 0.50 action Function(_keyquest_test_write_review)
+    timer 0.75 action Function(_keyquest_press, "RETURN", _update_screens=False)
+
+init python:
+    def _keyquest_test_review_result():
+        renpy.session["keyquest_typing_round"] = True
+        state = _keyquest_scan_state
+        state.started = _kq_time.time()
+        state.mode = "text"
+        state.region = "full"
+        state.destination = "show"
+        state.response = (state.request, u"4 The combat was hate-inspiring.\n\nSkip Auto) Menu!", None)
+        _keyquest_ocr_poll()
+        renpy.session.pop("keyquest_typing_round", None)
+
+    def _keyquest_test_write_review():
+        preview = renpy.get_screen("_keyquest_ocr_result")
+        if preview is None or preview.scope["result"] != u"The combat was hate-inspiring.":
+            raise AssertionError("The OCR preview did not isolate the sentence.")
+        _keyquest_write_result(preview.scope["result"])
 
 init python:
     def _keyquest_test_check_preview():
