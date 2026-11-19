@@ -192,7 +192,7 @@ public final class MacroService extends AccessibilityService {
                     }
                 }
                 if (SystemClock.uptimeMillis() >= deadline) {
-                    stop(mode == Mode.SEND_KEY ? "Key not delivered. Open a compatible game text prompt and retry."
+                    stop(mode == Mode.SEND_KEY ? "Game did not expose a text field. Minigames that read physical keys need a Bluetooth keyboard or desktop USB mode."
                             : "Target not detected. Confirm the app is focused and exposed to Android accessibility.");
                 } else {
                     handler.postDelayed(this, 250);

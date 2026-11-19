@@ -13,6 +13,8 @@ const SYMBOL_ROWS := ["1234567890", "@#%&?!:;_", "()[]+-=/"]
 
 var draft: LineEdit
 var keyboard_status: Label
+var adb_path: LineEdit
+var android_display: LineEdit
 var key_rows: VBoxContainer
 var bridge_message := ""
 var shifted := false
@@ -106,6 +108,17 @@ func _ready() -> void:
 	_draw_keys()
 	keyboard_status = _label(keyboard, "Open a text prompt in the selected game, then tap a key here.", 16, MUTED)
 	actions.erase(_button(keyboard, "Copy text", _copy_draft))
+	if OS.get_name() in ["Windows", "Linux", "macOS"]:
+		var usb := _card(keyboard)
+		_label(usb, "USB game controls", 20, TEXT)
+		adb_path = LineEdit.new()
+		adb_path.placeholder_text = "Path to adb (optional)"
+		usb.add_child(adb_path)
+		android_display = LineEdit.new()
+		android_display.placeholder_text = "Display ID (optional)"
+		usb.add_child(android_display)
+		actions.erase(_button(usb, "Focus game", _focus_game))
+
 
 	var macro := _page("Macros")
 	_label(macro, "Tap sequence", 26, TEXT)
@@ -130,7 +143,10 @@ func _ready() -> void:
 	status = _label(feedback, "", 16, MUTED)
 	status.custom_minimum_size.y = 24
 	if not Engine.has_singleton("QuestMacros"):
-		status.text = "Run on Android to connect to the accessibility service."
+		status.text = "Connect your Quest over USB, focus the game, and tap an on-screen key." if adb_path != null else "Android accessibility service is unavailable."
+		if adb_path != null:
+			readiness.text = "Desktop USB mode"
+			service_button.hide()
 		target.add_item("Choose an installed game")
 		for action in actions:
 			action.disabled = true
@@ -358,9 +374,79 @@ func _backspace() -> void:
 
 func _dispatch_key(value: String) -> void:
 	if bridge == null:
+		if adb_path != null:
+			_send_usb_key(value)
 		return
 	bridge_message = ""
 	bridge.sendKey(package_field.text.strip_edges(), value)
+
+
+func _send_usb_key(value: String) -> void:
+	var letter := value.to_lower()
+	var keycode := 0
+	if letter >= "a" and letter <= "z":
+		keycode = 29 + letter.unicode_at(0) - "a".unicode_at(0)
+	elif value >= "0" and value <= "9":
+		keycode = 7 + value.to_int()
+	else:
+		keycode = {" ": 62, "\b": 67, "\n": 66}.get(value, 0)
+	if keycode == 0:
+		_usb_status("USB game controls support letters, digits, Space, Backspace, and Enter.")
+		return
+	var command := PackedStringArray(["input"])
+	var display := android_display.text.strip_edges()
+	if not _valid_display(display):
+		return
+	if not display.is_empty():
+		command.append_array(["-d", display])
+	command.append_array(["keyevent", str(keycode)])
+	_run_usb(command, "Key event sent.")
+
+
+func _focus_game() -> void:
+	var target_package := package_field.text.strip_edges()
+	var package_pattern := RegEx.create_from_string("^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+$")
+	if package_pattern.search(target_package) == null:
+		_usb_status("Enter the game’s Android package name first.")
+		return
+	var display := android_display.text.strip_edges()
+	if not _valid_display(display):
+		return
+	var command := PackedStringArray(["am", "start"])
+	if not display.is_empty():
+		command.append_array(["--display", display])
+	command.append_array(["-a", "android.intent.action.MAIN", "-c",
+		"android.intent.category.LAUNCHER", "-p", target_package])
+	_run_usb(command, "Asked Android to open the game.")
+
+
+func _valid_display(display: String) -> bool:
+	if display.is_empty() or (display.is_valid_int() and display == str(display.to_int()) and display.to_int() >= 0):
+		return true
+	_usb_status("Enter a non-negative Android display ID or leave it blank.")
+	return false
+
+
+func _run_usb(command: PackedStringArray, success: String) -> void:
+	var executable := adb_path.text.strip_edges()
+	if executable.is_empty():
+		executable = "adb"
+	var arguments := PackedStringArray(["-d", "shell"])
+	arguments.append_array(command)
+	var output: Array = []
+	var exit_code := OS.execute(executable, arguments, output, true)
+	var response := "".join(output).strip_edges()
+	if exit_code == 0 and not response.begins_with("Error"):
+		_usb_status(success)
+	elif exit_code == -1:
+		_usb_status("ADB could not start. Enter the path to Android Platform Tools’ adb.")
+	else:
+		_usb_status(response if not response.is_empty() else "ADB failed. Check USB debugging.")
+
+
+func _usb_status(message: String) -> void:
+	status.text = message
+	keyboard_status.text = message
 
 
 func _copy_draft() -> void:

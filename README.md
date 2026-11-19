@@ -15,6 +15,12 @@ The in-app keys and copy action are available while the service is off. Direct d
 
 If the keyboard cannot send text, try a paired physical keyboard with the in-game prompt focused. On a USB-debugging connection, a computer can also try `scrcpy --no-video --no-audio --keyboard=uhid` to send input as a physical keyboard. If you can rebuild the game, test its own Android text-input request and the Quest keyboard manifest feature in that build.
 
+## Game controls without a text field
+
+For minigames that ask for physical keys, such as **S** and **I**, pair a Bluetooth keyboard to the Quest and select the game panel before pressing the keys. The headset APK sends text through Android’s editor connection, which a game canvas may never create.
+
+With a computer and an authorized USB debugging connection, open this project in Godot and press **F5**. In **Keyboard**, find **USB game controls**. Enter the path to Android Platform Tools’ `adb` if needed. Enter the game package and click **Focus game** to ask Android to open it, or select the game panel by hand. Tap the visual **S** and **I** keys. Each sends an Android key event to the focused window. Leave **Display ID** blank to use Android’s normal keyboard routing. Set a display ID only if you know which display hosts the game. Horizon OS controls whether the launch and injected events reach the panel.
+
 ## Tap macros
 
 Open the **Macros** tab. Each line contains the horizontal position, vertical position, and the delay after that tap. Coordinates are percentages of the focused target window, measured from its top-left corner. Enter two or more lines for a sequence. Use one line with a repeat count above one for an auto-clicker.
