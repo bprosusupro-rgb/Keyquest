@@ -107,6 +107,21 @@ public final class QuestMacrosPlugin extends GodotPlugin {
     }
 
     @UsedByGodot
+    public void sendText(String target, String text) {
+        Activity activity = getActivity();
+        if (activity == null) return;
+        activity.runOnUiThread(() -> {
+            MacroService service = MacroService.active;
+            if (service == null) {
+                MacroService.status = "Enable Keyquest in Android accessibility settings, then retry.";
+                openSettings();
+                return;
+            }
+            service.sendText(activity, target, text);
+        });
+    }
+
+    @UsedByGodot
     public void stop() {
         Activity activity = getActivity();
         if (activity != null) activity.runOnUiThread(() -> {

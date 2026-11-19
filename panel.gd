@@ -8,6 +8,15 @@ const SURFACE := Color("#15212f")
 const CONTROL := Color("#223248")
 const OUTLINE := Color("#34475e")
 
+const KEY_ROWS := ["qwertyuiop", "asdfghjkl", "zxcvbnm"]
+const SYMBOL_ROWS := ["1234567890", "@#%&?!:;_", "()[]+-=/"]
+
+var draft: LineEdit
+var key_rows: VBoxContainer
+var bridge_message := ""
+var shifted := false
+var symbols := false
+
 var bridge: Object
 var target := OptionButton.new()
 var package_field := LineEdit.new()
@@ -84,9 +93,20 @@ func _ready() -> void:
 	column.add_child(tabs)
 
 	var keyboard := _page("Keyboard")
-	_label(keyboard, "Game keyboard", 26, TEXT)
-	_label(keyboard, "Open the keyboard, then select the text prompt in your game.", 16, MUTED)
-	_button(keyboard, "Open keyboard", _keyboard, true)
+	_label(keyboard, "Type in Keyquest", 26, TEXT)
+	draft = LineEdit.new()
+	draft.editable = false
+	draft.placeholder_text = "Tap the keys to type"
+	draft.custom_minimum_size.y = 50
+	keyboard.add_child(draft)
+	key_rows = VBoxContainer.new()
+	key_rows.add_theme_constant_override("separation", 4)
+	keyboard.add_child(key_rows)
+	_draw_keys()
+	_label(keyboard, "Send switches to the selected game. Open its text prompt to receive your draft.", 16, MUTED)
+	_button(keyboard, "Send to game", _send_draft, true)
+	actions.erase(_button(keyboard, "Copy text", _copy_draft))
+	_button(keyboard, "Open keyboard overlay", _keyboard)
 
 	var macro := _page("Macros")
 	_label(macro, "Tap sequence", 26, TEXT)
@@ -238,6 +258,7 @@ func _label(parent: Container, caption: String, size: int, color: Color) -> Labe
 
 
 func _settings() -> void:
+	bridge_message = ""
 	bridge.openSettings()
 
 
@@ -270,22 +291,103 @@ func _load_macro() -> void:
 		repeat_count.value = saved.repeats
 
 
+func _draw_keys() -> void:
+	for child in key_rows.get_children():
+		key_rows.remove_child(child)
+		child.queue_free()
+	for letters in SYMBOL_ROWS if symbols else KEY_ROWS:
+		var row := _key_row()
+		for character in letters:
+			var value: String = character.to_upper() if shifted else character
+			_key(row, value, _type_key.bind(value))
+	var tools := _key_row()
+	_key(tools, "Shift", func() -> void:
+		shifted = not shifted
+		_draw_keys()
+	)
+	_key(tools, "ABC" if symbols else "123", func() -> void:
+		symbols = not symbols
+		_draw_keys()
+	)
+	_key(tools, "Space", _type_key.bind(" "), 1.5)
+	_key(tools, "⌫", func() -> void: _set_draft(draft.text.left(-1)))
+	_key(tools, "Clear", func() -> void: _set_draft(""))
+
+
+func _key_row() -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 3)
+	key_rows.add_child(row)
+	return row
+
+
+func _key(row: HBoxContainer, caption: String, handler: Callable, weight := 1.0) -> void:
+	var button := Button.new()
+	button.text = caption
+	button.custom_minimum_size.y = 46
+	button.size_flags_horizontal = SIZE_EXPAND_FILL
+	button.size_flags_stretch_ratio = weight
+	for state in ["normal", "hover", "pressed"]:
+		var fill := CONTROL if state == "normal" else Color("#395a71")
+		var box := _style(fill)
+		box.content_margin_left = 2
+		box.content_margin_right = 2
+		button.add_theme_stylebox_override(state, box)
+	button.pressed.connect(handler)
+	row.add_child(button)
+
+
+func _set_draft(value: String) -> void:
+	draft.text = value
+	draft.caret_column = draft.text.length()
+
+
+func _type_key(value: String) -> void:
+	if draft.text.length() < 500:
+		_set_draft(draft.text + value)
+	if shifted and not symbols:
+		shifted = false
+		_draw_keys()
+
+
+func _send_draft() -> void:
+	if draft.text.is_empty():
+		bridge_message = "Type something first."
+		_refresh_status()
+		return
+	bridge_message = ""
+	bridge.sendText(package_field.text.strip_edges(), draft.text)
+	_refresh_status()
+
+
+func _copy_draft() -> void:
+	if draft.text.is_empty():
+		return
+	DisplayServer.clipboard_set(draft.text)
+	bridge_message = "Copied. Switch to the game and paste if it supports the clipboard."
+	status.text = bridge_message
+
+
 func _keyboard() -> void:
+	bridge_message = ""
 	bridge.openKeyboard(package_field.text.strip_edges())
 	_refresh_status()
 
 
 func _run() -> void:
+	bridge_message = ""
 	bridge.arm(package_field.text.strip_edges(), steps.text, int(repeat_count.value), text_payload.text, false)
 	_refresh_status()
 
 
 func _pick() -> void:
+	bridge_message = ""
 	bridge.arm(package_field.text.strip_edges(), steps.text, int(repeat_count.value), "", true)
 	_refresh_status()
 
 
 func _stop() -> void:
+	bridge_message = ""
 	bridge.stop()
 	_refresh_status()
 
@@ -295,7 +397,7 @@ func _refresh_status() -> void:
 	readiness.text = "Service connected" if ready else "Service disabled"
 	readiness.add_theme_color_override("font_color", ACCENT if ready else MUTED)
 	service_button.text = "Accessibility settings" if ready else "Enable accessibility service"
-	status.text = bridge.getStatus()
+	status.text = bridge.getStatus() if bridge_message.is_empty() else bridge_message
 	var point: String = bridge.takePoint()
 	if not point.is_empty():
 		var existing := steps.text.strip_edges()

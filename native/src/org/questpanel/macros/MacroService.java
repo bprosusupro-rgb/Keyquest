@@ -42,6 +42,8 @@ public final class MacroService extends AccessibilityService {
     private WindowManager pickerManager;
     private TextView picker;
     private int generation;
+
+    private enum Mode { MACRO, PICK, OVERLAY, SEND_TEXT }
     private KeyboardOverlay keyboard;
 
     private static final class Step {
@@ -94,7 +96,7 @@ public final class MacroService extends AccessibilityService {
     }
 
     void arm(Activity activity, String target, String coordinates, int repeats, String payload, boolean pick) {
-        arm(activity, target, coordinates, repeats, payload, pick, false);
+        arm(activity, target, coordinates, repeats, payload, pick ? Mode.PICK : Mode.MACRO);
     }
 
     void openKeyboard(Activity activity, String target) {
@@ -102,11 +104,19 @@ public final class MacroService extends AccessibilityService {
             stop("The in-game keyboard requires Android 13 or newer.");
             return;
         }
-        arm(activity, target, "", 1, "", false, true);
+        arm(activity, target, "", 1, "", Mode.OVERLAY);
+    }
+
+    void sendText(Activity activity, String target, String text) {
+        if (text.isEmpty() || text.length() > 500) {
+            stop("Enter between 1 and 500 characters.");
+            return;
+        }
+        arm(activity, target, "", 1, text, Mode.SEND_TEXT);
     }
 
     private void arm(Activity activity, String target, String coordinates, int repeats,
-                     String payload, boolean pick, boolean typing) {
+                     String payload, Mode mode) {
         stop("Preparing…");
         if (!target.matches("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+")
                 || target.equals(getPackageName())) {
@@ -115,7 +125,7 @@ public final class MacroService extends AccessibilityService {
         }
         List<Step> steps = new ArrayList<>();
         try {
-            if (!pick && !typing) {
+            if (mode == Mode.MACRO) {
                 for (String line : coordinates.split("\\R")) {
                     if (!line.trim().isEmpty()) steps.add(new Step(line));
                 }
@@ -146,16 +156,32 @@ public final class MacroService extends AccessibilityService {
         operation = new Runnable() {
             @Override public void run() {
                 if (ticket != generation) return;
-                Target window = findTarget(target, typing);
+                Target window = findTarget(target, mode == Mode.OVERLAY);
                 if (window != null) {
-                    if (pick) showPicker(target, window);
-                    else if (typing) showKeyboard(target, window);
-                    else schedule(() -> runStep(ticket, target, window.display, steps,
-                                                 repeats, payload, 0), 1200);
-                    return;
+                    if (mode == Mode.SEND_TEXT) {
+                        InputMethod.AccessibilityInputConnection input = keyboardConnection(target, window.display);
+                        if (input != null) {
+                            input.commitText(payload, 1, null);
+                            stop("Text sent to the game.");
+                            return;
+                        }
+                        status = "Focus the game’s text prompt to send your draft.";
+                    } else if (mode == Mode.PICK) {
+                        showPicker(target, window);
+                        return;
+                    } else if (mode == Mode.OVERLAY) {
+                        showKeyboard(target, window);
+                        return;
+                    }
+                    else {
+                        schedule(() -> runStep(ticket, target, window.display, steps,
+                                               repeats, payload, 0), 1200);
+                        return;
+                    }
                 }
                 if (SystemClock.uptimeMillis() >= deadline) {
-                    stop("Target not detected. Confirm the app is focused and exposed to Android accessibility.");
+                    stop(mode == Mode.SEND_TEXT ? "Text was not sent. Open a compatible text prompt and retry."
+                            : "Target not detected. Confirm the app is focused and exposed to Android accessibility.");
                 } else {
                     handler.postDelayed(this, 250);
                 }

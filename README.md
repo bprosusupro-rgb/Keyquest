@@ -7,10 +7,11 @@ A Godot control panel and Android accessibility service for a sideloaded 2D game
 1. Sideload the signed ARM64 APK with SideQuest or `adb -d install -r QuestPanelMacros.apk`. The package name and signing key stay the same as v0.1.0.
 2. Open **Keyquest** under **Unknown Sources**. If the launcher does not show it, try `adb -d shell am start -n org.questpanel.macros/com.godot.game.GodotAppLauncher`.
 3. Select **Enable accessibility service**, then enable **Keyquest** in Android accessibility settings. **Open keyboard** and the macro controls also open system settings when the service is disabled. If Android offers **Allow restricted settings** in the app info menu, enable it for Keyquest, then return to the accessibility screen. The **Service connected** label confirms that Android started the service.
-4. Choose your installed game, or select **Enter package name** if it is missing. Open the **Keyboard** tab and select **Open keyboard**. If Keyquest cannot launch the game, switch to it within 30 seconds.
-5. Focus a text prompt in the game and press a few keyboard keys. Use **Move up** or **Move down** if the keyboard covers the field. The keyboard closes when you switch to another app.
+4. Choose your installed game, or select **Enter package name** if it is missing.
+5. Tap the keys in Keyquest’s **Keyboard** tab. Select **Send to game**, then focus the game’s text prompt within 30 seconds. Keyquest sends your draft as a batch when the input connection is available. If the game does not open automatically, switch to it manually.
+6. Use **Copy text** if the game can paste from the clipboard. You can also choose **Open keyboard overlay** to type over a focused game on supported firmware.
 
-Keyquest uses Android's accessibility input connection on Android 13 or newer. The keyboard provides letters, Shift, numbers, punctuation, Space, Backspace, and Enter. The target game must expose an Android text input connection while its prompt is active. An older or custom Ren’Py build can accept a physical keyboard while exposing no compatible input connection for this overlay. Horizon OS can also limit which Android windows and overlay types are available.
+The in-app keys and copy action are available while the service is off. Direct delivery to the game needs the accessibility service, Android 13 or newer, and a compatible text input connection. Horizon OS may restrict target-window access. Some older or custom Ren’Py builds accept a physical keyboard while exposing no compatible Android text input connection.
 
 If the keyboard cannot send text, try a paired physical keyboard with the in-game prompt focused. On a USB-debugging connection, a computer can also try `scrcpy --no-video --no-audio --keyboard=uhid` to send input as a physical keyboard. If you can rebuild the game, test its own Android text-input request and the Quest keyboard manifest feature in that build.
 
