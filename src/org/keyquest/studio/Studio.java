@@ -27,10 +27,13 @@ import static org.keyquest.studio.StudioStyle.*;
 
 public final class Studio extends Activity {
     private static final int OPEN = 1;
-    private TextView selection, status;
-    private Button browse, installed, build, save;
+    private TextView selection, status, timeline, timing;
+    private EditText outputTitle;
+    private String filename;
+    private final String[] phases = {"Repacking", "Adding controls", "Signing", "Verifying"};
+    private Button browse, installed, build, save, options;
     private ProgressBar progress;
-    private CheckBox profile, valuesAddon;
+    private CheckBox profile, valuesAddon, renameInLibrary;
     private File selectedApk, cachedApk;
     private ApkInspection inspection;
     private File ready;
@@ -79,13 +82,36 @@ public final class Studio extends Activity {
         heading(output, "Build keyboard APK");
         profile = option(output, "My game uses Ren’Py 8.4.1");
         valuesAddon = option(output, "Include local value editor");
+        label(output, "Output name", 15, MUTED, true);
+        outputTitle = new EditText(this);
+        outputTitle.setHint("Game name");
+        outputTitle.setHintTextColor(MUTED);
+        outputTitle.setTextColor(TEXT);
+        outputTitle.setSingleLine(true);
+        outputTitle.setTextSize(17);
+        outputTitle.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(80)});
+        outputTitle.setMinHeight(dp(50));
+        outputTitle.setPadding(dp(12), 0, dp(12), 0);
+        outputTitle.setBackground(surface(CONTROL, dp(12), dp(1), BORDER));
+        output.addView(outputTitle);
+        renameInLibrary = option(output, "Rename in app library");
+        renameInLibrary.setChecked(true);
         label(output, "Back up game saves before installing the re-signed copy.", 14, MUTED, false);
         build = button(output, "Build APK", true, view -> confirmBuild());
         save = button(output, "Save to Downloads", true, view -> saveToDownloads());
+        options = button(output, "Change build options", false, view -> {
+            discardOutput();
+            timeline.setText("");
+            timing.setText("");
+            status.setText("");
+            refresh();
+        });
+        timeline = label(output, "", 15, TEXT, true);
         progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progress.setIndeterminate(true);
         progress.setIndeterminateTintList(ColorStateList.valueOf(ACCENT));
         output.addView(progress, new LinearLayout.LayoutParams(-1, dp(14)));
+        timing = label(output, "", 15, MUTED, false);
         status = label(output, "", 15, MUTED, false);
         status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         workspace.addOnLayoutChangeListener((view, left, top, right, bottom,
@@ -155,6 +181,9 @@ public final class Studio extends Activity {
         cachedApk = null;
         selectedApk = null;
         inspection = null;
+        timeline.setText("");
+        timing.setText("");
+        outputTitle.setText("");
         profile.setChecked(false);
         selection.setText(fallbackName);
         status.setText("Scanning the APK…");
@@ -208,6 +237,11 @@ public final class Studio extends Activity {
                 inspection = findings;
                 busy = false;
                 selection.setText(name);
+                if (selectedApk != null) {
+                    String title = name.split("\n", 2)[0].replaceFirst("(?i)\\.apk$", "").trim();
+                    if (title.length() > 65) title = title.substring(0, 65);
+                    outputTitle.setText(title + " • Keyquest");
+                }
                 status.setText(outcome);
                 refresh();
             });
@@ -230,9 +264,19 @@ public final class Studio extends Activity {
 
     private void confirmBuild() {
         if (!canBuild()) return;
+        String title = outputTitle.getText().toString().trim();
+        if (title.isEmpty()) {
+            status.setText("Enter an output name.");
+            return;
+        }
         discardOutput();
         busy = true;
-        status.setText("Reading, rebuilding, and signing…");
+        filename = title.replaceAll("[^\\p{L}\\p{N}._ -]+", "-").replaceAll(" +", " ").trim() + ".apk";
+        final String libraryLabel = renameInLibrary.isChecked() ? title : null;
+        status.setText("Checking the source APK…");
+        timeline.setText("");
+        timing.setText("");
+        progress.setIndeterminate(true);
         refresh();
         final File source = selectedApk;
         final boolean includeValues = valuesAddon.isChecked();
@@ -254,8 +298,9 @@ public final class Studio extends Activity {
                 if (includeValues) {
                     gameAssets.put("assets/x-game/x-keyquest_values.rpyc", readAsset("keyquest_values_8_4_1.rpyc"));
                 }
-                ApkBuilder.build(source, unsigned, result, gameAssets, signer());
-                message = "APK verified. Save it to Downloads.";
+                ApkBuilder.build(source, unsigned, result, gameAssets, signer(), libraryLabel, new BuildTimeline());
+                message = String.format(Locale.getDefault(), "Verified · %.1f MB\n%s",
+                        result.length() / 1_000_000.0, filename);
             } catch (Exception error) {
                 if (result != null) result.delete();
                 result = null;
@@ -272,10 +317,47 @@ public final class Studio extends Activity {
                 }
                 ready = completed;
                 busy = false;
+                timeline.setText(completed == null ? "Build stopped" : "✓ Repacked   ✓ Added controls   ✓ Signed   ✓ Verified");
+                timing.setText("");
                 status.setText(outcome);
                 refresh();
             });
         }, "keyquest-build").start();
+    }
+
+    private final class BuildTimeline implements ApkBuilder.Observer {
+        private final long started = android.os.SystemClock.elapsedRealtime();
+        private long stageStarted = started, sent;
+        private String current = "";
+
+        @Override public void update(String stage, long copied, long total) {
+            long now = android.os.SystemClock.elapsedRealtime();
+            boolean changed = !stage.equals(current);
+            if (changed) {
+                current = stage;
+                stageStarted = now;
+            } else if (now - sent < 180 && copied < total) {
+                return;
+            }
+            sent = now;
+            int index = Arrays.asList(phases).indexOf(stage);
+            long elapsed = now - stageStarted;
+            boolean measured = index == 0 && total > 0;
+            int percent = measured ? (int) Math.min(100, copied * 100 / total) : 0;
+            String estimate = measured && elapsed >= 750 && copied > 0 && copied < total
+                    ? " · about " + Math.max(1, Math.round((total - copied) * (elapsed / (double) copied) / 1000.0))
+                        + " s left to repack" : "";
+            String metrics = measured
+                    ? String.format(Locale.getDefault(), "%.1f / %.1f MB · %d%%", copied / 1e6, total / 1e6, percent)
+                    : "Elapsed " + Math.max(0, (now - started) / 1000) + " s";
+            runOnUiThread(() -> {
+                if (isDestroyed()) return;
+                timeline.setText((index + 1) + " / " + phases.length + "   " + stage);
+                timing.setText(metrics + estimate);
+                progress.setIndeterminate(!measured);
+                if (measured) progress.setProgress(percent);
+            });
+        }
     }
 
     private byte[] readAsset(String name) throws IOException {
@@ -315,7 +397,7 @@ public final class Studio extends Activity {
             Uri uri = null;
             try {
                 android.content.ContentValues values = new android.content.ContentValues();
-                values.put(android.provider.MediaStore.Downloads.DISPLAY_NAME, "game-keyboard.apk");
+                values.put(android.provider.MediaStore.Downloads.DISPLAY_NAME, filename);
                 values.put(android.provider.MediaStore.Downloads.MIME_TYPE, "application/vnd.android.package-archive");
                 values.put(android.provider.MediaStore.Downloads.IS_PENDING, 1);
                 uri = getContentResolver().insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
@@ -330,7 +412,7 @@ public final class Studio extends Activity {
                 if (getContentResolver().update(uri, values, null, null) != 1) {
                     throw new IOException("Could not publish the download.");
                 }
-                message = "Saved in Downloads as game-keyboard.apk.";
+                message = "Saved in Downloads · " + filename;
             } catch (Exception error) {
                 if (uri != null) {
                     try { getContentResolver().delete(uri, null, null); }
@@ -376,7 +458,11 @@ public final class Studio extends Activity {
         profile.setVisibility(inspection != null && inspection.canBuild() && inspection.engineVersion == null
                 ? View.VISIBLE : View.GONE);
         profile.setEnabled(!busy);
-        valuesAddon.setEnabled(!busy);
+        valuesAddon.setEnabled(!busy && ready == null);
+        outputTitle.setEnabled(!busy && ready == null && selectedApk != null);
+        renameInLibrary.setEnabled(!busy && ready == null && selectedApk != null);
+        options.setVisibility(ready == null ? View.GONE : View.VISIBLE);
+        options.setEnabled(!busy);
         build.setEnabled(canBuild());
         save.setVisibility(ready == null ? View.GONE : View.VISIBLE);
         save.setEnabled(!busy);

@@ -7,7 +7,13 @@ A standalone Android app that puts a keyboard inside a compatible Ren’Py game.
 1. Sideload **KeyquestStudio.apk** and open **Keyquest Studio**.
 2. Choose a downloaded APK with the file picker or choose an installed single-APK game. The file picker needs an Android document provider. If Quest does not expose one, use the installed-game picker.
 3. Studio scans the selected APK and shows its title, package, app version, and Ren’Py engine version when available. A detected Ren’Py 8.4.1 build is ready automatically. If the engine version is unknown, confirm 8.4.1 manually before choosing **Build APK** and **Save to Downloads**. A detected unsupported version stays blocked.
-4. Sideload `game-keyboard.apk` from Downloads. Tap the **Keyquest logo** in the game’s bottom-right corner. **S** and **I** are the default shortcuts. **Settings** lets you remap them, switch theme, change size, and dock the keyboard at the top or bottom.
+4. Sideload the newly named APK from Downloads. Tap the **Keyboard** button in the game’s bottom-right corner. **S** and **I** are the default shortcuts. **Settings** lets you remap them, switch theme, change size, and dock the keyboard at the top or bottom.
+
+### Build timeline and output name
+
+Choose an output name before building. Studio uses it for the filename in Downloads and, with **Rename in app library** enabled, for the Android launcher label. The original package ID and game launcher artwork are preserved. The rebuilt game has a labeled **Keyboard** button with the Keyquest logo. If the game cannot load the image, the text still opens the keyboard.
+
+The build view shows repacking, adding controls, signing, and verification. During repacking it measures copied bytes and estimates time remaining for that step from the observed copy rate. Signing and verification show the stage instead of a guessed ETA. The final report lists the verified APK size and name. Choose **Change build options** to run a fresh build with another name or add-on selection.
 
 ### Optional value editor
 

@@ -33,13 +33,18 @@ style keyquest_key_text is button_text:
 screen _keyquest_launcher():
     zorder 990
     button:
-        align (0.985, 0.975)
-        background None
-        padding (4, 4)
+        align (0.98, 0.95)
+        background Frame("keyquest_panel.png", 24, 24)
+        hover_background Frame("keyquest_panel_mint.png", 24, 24)
+        padding (8, 6)
         action ToggleScreen("_keyquest_keyboard")
         alt "Keyquest keyboard"
         alternate (ToggleScreen("_keyquest_values") if renpy.has_screen("_keyquest_values") else NullAction())
-        add "keyquest_logo.png" xysize (max(44, min(68, config.screen_width // 16)), max(44, min(68, config.screen_width // 16)))
+        hbox:
+            spacing 7
+            if renpy.loadable("keyquest_logo.png"):
+                add "keyquest_logo.png" xysize (48, 48) yalign 0.5
+            text "Keyboard" color "#eff8ff" size 22 yalign 0.5
 
 screen _keyquest_keyboard():
     zorder 991
