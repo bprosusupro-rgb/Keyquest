@@ -22,6 +22,7 @@ init python:
             SetScreenVariable("feedback", "Enter a valid number of the same type (up to 1 trillion).")()
             return
         setattr(renpy.store, name, value)
+        _keyquest_trace("game_value_changed")
         SetScreenVariable("feedback", "{}: {} → {}".format(name, current, value))()
 
 screen _keyquest_values():

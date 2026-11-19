@@ -16,3 +16,4 @@ cp "$scratch/game/keyquest_automation.rpyc" "$project/assets/keyquest_automation
 cp "$scratch/game/keyquest_ocr.rpyc" "$project/assets/keyquest_ocr_$profile.rpyc"
 cp "$scratch/game/keyquest_vision.rpyc" "$project/assets/keyquest_vision_$profile.rpyc"
 cp "$scratch/game/keyquest_minigames.rpyc" "$project/assets/keyquest_minigames_$profile.rpyc"
+cp "$scratch/game/keyquest_diagnostics.rpyc" "$project/assets/keyquest_diagnostics_$profile.rpyc"

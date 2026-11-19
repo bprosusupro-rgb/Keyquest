@@ -17,6 +17,8 @@ init python:
             persistent.keyquest_macro = persistent.keyquest_macro + (value,)
 
     def _keyquest_stop_task():
+        if _keyquest_task is not None:
+            _keyquest_trace("automation_stopped", mode=_keyquest_task[0], step=_keyquest_task[2])
         renpy.store._keyquest_task = None
         renpy.hide_screen("_keyquest_runner")
 
@@ -34,6 +36,7 @@ init python:
             sequence = (_keyquest_click_point,) * persistent.keyquest_click_count
             delay = persistent.keyquest_click_delay
 
+        _keyquest_trace("automation_started", mode=mode, count=len(sequence), interval=delay)
         renpy.store._keyquest_task = (mode, sequence, 0, delay)
         renpy.hide_screen("_keyquest_automation")
         renpy.show_screen("_keyquest_runner")

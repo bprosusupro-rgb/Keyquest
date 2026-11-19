@@ -33,7 +33,7 @@ public final class Studio extends Activity {
     private final String[] phases = {"Repacking", "Adding controls", "Signing", "Verifying"};
     private Button browse, installed, build, save, options;
     private ProgressBar progress;
-    private CheckBox valuesAddon, renameInLibrary, automationAddon, ocrAddon;
+    private CheckBox valuesAddon, renameInLibrary, automationAddon, ocrAddon, diagnosticsAddon;
     private Spinner profile;
     private File selectedApk, cachedApk;
     private ApkInspection inspection;
@@ -93,10 +93,12 @@ public final class Studio extends Activity {
         valuesAddon = option(output, "Include local value editor");
         automationAddon = option(output, "Include macro writer and auto-clicker");
         ocrAddon = option(output, "Include Smart Input · OCR, math, live key detection");
+        diagnosticsAddon = option(output, "Include diagnostics logging");
         contents = label(output, "", 15, MUTED, false);
         valuesAddon.setOnCheckedChangeListener((view, checked) -> showContents());
         automationAddon.setOnCheckedChangeListener((view, checked) -> showContents());
         ocrAddon.setOnCheckedChangeListener((view, checked) -> showContents());
+        diagnosticsAddon.setOnCheckedChangeListener((view, checked) -> showContents());
         showContents();
         label(output, "Output name", 15, MUTED, true);
         outputTitle = new EditText(this);
@@ -267,6 +269,7 @@ public final class Studio extends Activity {
                     valuesAddon.setChecked(findings.valuesIncluded);
                     automationAddon.setChecked(findings.automationIncluded);
                     ocrAddon.setChecked(findings.ocrIncluded);
+                    diagnosticsAddon.setChecked(findings.diagnosticsIncluded);
                 }
                 status.setText(outcome);
                 refresh();
@@ -323,6 +326,7 @@ public final class Studio extends Activity {
         final boolean includeValues = valuesAddon.isChecked();
         final boolean includeAutomation = automationAddon.isChecked();
         final boolean includeOcr = ocrAddon.isChecked();
+        final boolean includeDiagnostics = diagnosticsAddon.isChecked();
         final String profileKey = family.replace('.', '_');
         new Thread(() -> {
             File unsigned = null, result = null;
@@ -347,6 +351,9 @@ public final class Studio extends Activity {
                 if (includeAutomation) {
                     gameAssets.put(ApkBuilder.AUTOMATION,
                             readAsset("keyquest_automation_" + profileKey + ".rpyc"));
+                }
+                if (includeDiagnostics) {
+                    gameAssets.put(ApkBuilder.DIAGNOSTICS, readAsset("keyquest_diagnostics_" + profileKey + ".rpyc"));
                 }
                 if (includeOcr) {
                     gameAssets.put(ApkBuilder.OCR, readAsset("keyquest_ocr_" + profileKey + ".rpyc"));
@@ -524,6 +531,7 @@ public final class Studio extends Activity {
         valuesAddon.setEnabled(!busy && ready == null);
         automationAddon.setEnabled(!busy && ready == null);
         ocrAddon.setEnabled(!busy && ready == null);
+        diagnosticsAddon.setEnabled(!busy && ready == null);
         outputTitle.setEnabled(!busy && ready == null && selectedApk != null);
         renameInLibrary.setEnabled(!busy && ready == null && selectedApk != null);
         options.setVisibility(ready == null ? View.GONE : View.VISIBLE);
@@ -540,7 +548,8 @@ public final class Studio extends Activity {
         contents.setText("Included: keyboard and corner launcher"
                 + (valuesAddon.isChecked() ? " · Values" : "")
                 + (automationAddon.isChecked() ? " · Macro writer · Auto-clicker" : "")
-                + (ocrAddon.isChecked() ? " · OCR · Math · Live key detection" : ""));
+                + (ocrAddon.isChecked() ? " · OCR · Math · Live key detection" : "")
+                + (diagnosticsAddon.isChecked() ? " · Diagnostics" : ""));
     }
 
     private static String describe(Exception error) {

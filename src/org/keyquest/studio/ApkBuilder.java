@@ -16,6 +16,7 @@ final class ApkBuilder {
     static final String VISION_SCRIPT = "assets/x-game/x-keyquest_vision.rpyc";
     static final String VISION_PACK = "assets/x-game/x-keyquest_vision.zip";
     static final String MINIGAMES = "assets/x-game/x-keyquest_minigames.rpyc";
+    static final String DIAGNOSTICS = "assets/x-game/x-keyquest_diagnostics.rpyc";
     static final String[] ARTWORK = {"logo", "panel", "panel_mint", "key", "key_focus", "sheet"};
 
     static String artworkPath(String name) {
@@ -24,7 +25,7 @@ final class ApkBuilder {
 
     private static boolean studioAsset(String path) {
         if (path.equals(OVERLAY) || path.equals(VALUES) || path.equals(AUTOMATION) || path.equals(OCR)
-                || path.equals(VISION_SCRIPT) || path.equals(VISION_PACK) || path.equals(MINIGAMES)) return true;
+                || path.equals(VISION_SCRIPT) || path.equals(VISION_PACK) || path.equals(MINIGAMES) || path.equals(DIAGNOSTICS)) return true;
         for (String name : ARTWORK) {
             if (path.equals(artworkPath(name))) return true;
         }

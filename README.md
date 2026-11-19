@@ -62,6 +62,12 @@ The original file is preserved. Studio preserves the game’s package ID and sig
 
 Studio targets standard **Ren’Py universal APKs** from the 7.8 and 8.0 through 8.5 families. Representative SDK versions were tested locally, so compatibility with individual games and patch versions still varies. Split packages, script-key-locked builds, custom layouts, and other engine versions are outside its supported scope. Extra UI may be unavailable in games using a custom SDL loop outside Ren’Py screens. The desktop Ren’Py key event and APK signing paths were tested with fixtures. On-device document selection, signing with Android Keystore, and the actual Quest minigame are still unverified.
 
+### Diagnostics
+
+Enable **Include diagnostics logging** when updating a game. In the rebuilt game, open **Keyboard → Settings → Diagnostics** and select **Start fresh log**. Reproduce the issue, then select **Turn off logging** to flush and close the file. On Quest it appears under Downloads as `Keyquest-<game-package>.log.txt`.
+
+Keyquest keeps one log per game. Starting a fresh log replaces the previous one. If logging stays enabled through a restart, the game appends so the previous session's crash details remain available. At 2 MiB the log resets in the same file. It records scene labels, focus changes, Ren’Py exception types and locations, and Keyquest actions. It excludes dialogue, typed and recognized text, screenshots, and values entered in the editor.
+
 ## Build from source
 
 Run `build.sh path/to/KeyquestStudio.apk` on Linux with Java and zip. Set the following environment variables to absolute paths.

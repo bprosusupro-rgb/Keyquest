@@ -48,6 +48,8 @@ init python:
         state = _keyquest_minigame
         _keyquest_stop_minigame()
         state.message = message
+        if message or clear_moves:
+            _keyquest_trace("minigame_ended", cleared=bool(clear_moves), remaining=len(state.moves))
         if clear_moves:
             state.moves = ()
             state.tile_goal = ()
@@ -100,6 +102,7 @@ init python:
                 boards = dict(persistent.keyquest_minigame_boards)
                 boards[_keyquest_board_key()] = state.corner + point
                 persistent.keyquest_minigame_boards = boards
+                _keyquest_trace("board_calibrated", mode=_keyquest_board_key(), bounds=boards[_keyquest_board_key()])
                 state.sequence = () if state.mode == "colors" else state.sequence
                 _keyquest_show_minigame("Board saved.")
             else:
@@ -184,6 +187,7 @@ init python:
         if renpy.has_screen("_keyquest_runner"):
             _keyquest_stop_task()
         state.job = job
+        _keyquest_trace("minigame_started", job=job, side=state.tile_side, remaining=len(state.moves))
         state.message = ""
         state.deadline = _kq_puzzle_time.time() + (22 + len(state.moves) if job == "tile-play" else 22)
         state.next_tap = 0.0
@@ -523,6 +527,7 @@ init python:
 
     def _keyquest_send_tile_move(state, now, retry=False):
         index = state.moves[0]
+        _keyquest_trace("tile_tap", index=index, blank=state.tiles.index(0), retry=retry, remaining=len(state.moves))
         state.pending = (_keyquest_slide_tile(state.tiles, index), now + (3.2 if retry else 2.2), retry)
         state.tile_seen = None
         state.tile_seen_count = 0
@@ -533,6 +538,7 @@ init python:
         state.pending = None
         state.tile_wait_until = 0.0
         state.next_tap = now + 0.16
+        _keyquest_trace("tile_board_accepted", expected=observed == expected, board=observed)
         if observed == expected:
             state.moves = state.moves[1:]
         else:
@@ -555,6 +561,7 @@ init python:
                         for i in range(side * side))
         observed = _keyquest_observe_tiles(samples, state.signatures, state.tiles, expected)
         if observed != state.tile_seen:
+            _keyquest_trace("tile_observed", board=observed, waiting_for=expected)
             state.tile_seen = observed
             state.tile_seen_count = 0
         state.tile_seen_count += 1
@@ -568,8 +575,10 @@ init python:
             if stable and not retried:
                 _keyquest_send_tile_move(state, now, retry=True)
             elif stable:
+                _keyquest_trace("tile_wait_expired", reason="tap_ignored")
                 _keyquest_show_minigame("The tile did not respond. Tap Play to retry.")
             elif now >= until + 2.0:
+                _keyquest_trace("tile_wait_expired", reason="move_unconfirmed")
                 final_move = len(state.moves) == 1
                 message = ("Last move sent. Check the game result." if final_move
                            else "The board could not be confirmed. Tap Play to check it again, or scan a new board.")
@@ -580,6 +589,7 @@ init python:
         elif not state.tile_wait_until:
             state.tile_wait_until = now + 3.0
         elif now >= state.tile_wait_until:
+            _keyquest_trace("tile_wait_expired", reason="board_unreadable")
             _keyquest_show_minigame("The board is hard to read. Check the board corners or tap Play to retry.")
 
     def _keyquest_minigame_tick():
@@ -631,6 +641,7 @@ init python:
                 if error:
                     _keyquest_show_minigame(error, clear_moves=True)
                 else:
+                    _keyquest_trace("tiles_scanned", board=tiles, moves=len(moves), review=bool(goal))
                     state.tiles, state.signatures, state.moves = tiles, signatures, moves
                     state.tile_goal = goal
                     if goal:
@@ -644,6 +655,7 @@ init python:
             else:
                 _keyquest_step_tiles(state, now)
         except Exception as error:
+            _keyquest_trace("minigame_error", job=job, kind=type(error).__name__)
             renpy.log("Keyquest minigame: " + repr(error))
             _keyquest_show_minigame(str(error) if isinstance(error, ValueError) else "Could not read the game board.", clear_moves=job.startswith("tile"))
 

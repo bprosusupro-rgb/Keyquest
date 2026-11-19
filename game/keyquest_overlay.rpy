@@ -1,8 +1,12 @@
 # Add this file to the game/ directory of a Ren'Py project you can modify.
 
 init python:
+    def _keyquest_trace(event, **fields):
+        pass
+
     def _keyquest_press(name, text=""):
         import pygame
+        _keyquest_trace("keyboard_press", key=name if len(name) > 1 and name.isupper() else "character")
         key = getattr(pygame, "K_" + name)
         mods = pygame.KMOD_SHIFT if text and text.isupper() else 0
         # Ren'Py's keymap reads repeat on both press and release.
@@ -23,6 +27,7 @@ init python:
             y = float(drag.y) / max(1, drag.parent_height - drag.h)
             positions[drag.drag_name] = (min(1.0, max(0.0, x)), min(1.0, max(0.0, y)))
             persistent.keyquest_panel_positions = positions
+            _keyquest_trace("panel_moved", panel=drag.drag_name, position=positions[drag.drag_name])
             renpy.restart_interaction()
 
     def _keyquest_panel_grabbed():
@@ -141,9 +146,9 @@ screen _keyquest_keyboard():
     default caps = False
     default settings_open = False
     default editing_slot = 1
-    $ scale = min(1.0, config.screen_width / 650.0, config.screen_height / 510.0) * (0.80 if persistent.keyquest_compact else 1.0)
+    $ scale = min(1.0, config.screen_width / 650.0, config.screen_height / (565.0 if settings_open and renpy.has_screen("_keyquest_diagnostics_settings") else 510.0)) * (0.80 if persistent.keyquest_compact else 1.0)
     $ position = persistent.keyquest_position
-    $ panel_height = 505 if settings_open else 400
+    $ panel_height = (560 if renpy.has_screen("_keyquest_diagnostics_settings") else 505) if settings_open else 400
     draggroup:
         drag:
             drag_name "keyquest-floating-keyboard"
@@ -180,6 +185,8 @@ screen _keyquest_keyboard():
                         textbutton ("Done" if settings_open else "Settings") style "keyquest_deck_key" action ToggleScreenVariable("settings_open")
                         textbutton "Close" style "keyquest_deck_key" action Hide("_keyquest_keyboard")
                     if settings_open:
+                        if renpy.has_screen("_keyquest_diagnostics_settings"):
+                            textbutton "Diagnostics" style "keyquest_deck_key" action [Hide("_keyquest_keyboard"), Show("_keyquest_diagnostics_settings")]
                         hbox:
                             spacing 6
                             textbutton "Reset positions" style "keyquest_deck_key" action Function(_keyquest_reset_panels)

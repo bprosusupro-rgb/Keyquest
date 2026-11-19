@@ -109,6 +109,7 @@ init python:
     config.after_load_callbacks.append(_keyquest_ocr_reset)
 
     def _keyquest_ocr_begin(mode, region, destination="show", repeat_settings=((), 3, 0.15)):
+        _keyquest_trace("ocr_started", mode=mode, region=region, destination=destination)
         _keyquest_ocr_reset()
         state = _keyquest_scan_state
         state.started = _kq_time.time()
@@ -161,6 +162,7 @@ init python:
             try:
                 state.native = _keyquest_submit_local(state.mode, state.region)
             except Exception as error:
+                _keyquest_trace("ocr_error", stage="local_engine")
                 renpy.log("Keyquest local OCR: " + repr(error))
             if state.native:
                 renpy.show_screen("_keyquest_ocr_wait")
@@ -225,6 +227,7 @@ init python:
                     crop.recycle()
                 bitmap.recycle()
         except Exception as error:
+            _keyquest_trace("ocr_error", stage="android_bridge")
             renpy.log("Keyquest OCR bridge: " + repr(error))
             _keyquest_ocr_return("Could not start OCR. Update Keyquest Studio and try again.")
             return
@@ -244,6 +247,7 @@ init python:
         _, text, error = response
         if state.native and error:
             # Older game runtimes can still use Studio for a one-shot scan.
+            _keyquest_trace("ocr_error", stage="local_engine")
             renpy.log("Keyquest local OCR: " + error)
             state.native = False
             renpy.hide_screen("_keyquest_ocr_wait")
@@ -255,6 +259,7 @@ init python:
         if (state.destination == "type" and state.mode != "keys"
                 and activity is not None and not activity.hasWindowFocus()):
             return
+        _keyquest_trace("ocr_result", mode=state.mode, received=bool(text), failed=bool(error))
         if error or not text:
             _keyquest_ocr_return(error or "No text found. Try a smaller scan area.")
             return
@@ -280,10 +285,12 @@ init python:
         try:
             _keyquest_insert_text(output)
         except Exception as failure:
+            _keyquest_trace("ocr_error", stage="text_input")
             renpy.log("Keyquest text input: " + repr(failure))
             _keyquest_ocr_return("The game could not accept this scan as text.")
 
     def _keyquest_watch_start(mode, region, repeat_settings=((), 3, 0.15)):
+        _keyquest_trace("ocr_watch_started", mode=mode, region=region)
         _keyquest_ocr_reset()
         state = _keyquest_scan_state
         state.mode = mode
@@ -308,6 +315,7 @@ init python:
                  else _keyquest_math_answer(text, state.region == "bottom"))
         state.watch_confirmed = now
         if value != state.watch_value:
+            _keyquest_trace("ocr_watch_changed", mode=state.watch, recognized=value is not None)
             state.watch_value = value
             state.watch_index = 0
             renpy.restart_interaction()
@@ -322,6 +330,7 @@ init python:
         now = _kq_time.time()
         if state.watch_paused:
             state.watch_paused = False
+            _keyquest_trace("ocr_watch_resumed")
             state.request += 1
             state.watch_confirmed = 0.0
             state.next_scan = now
@@ -333,6 +342,7 @@ init python:
             _keyquest_vision.response = None
             _, text, error = response
             if error:
+                _keyquest_trace("ocr_error", stage="live_capture")
                 renpy.log("Keyquest live OCR: " + error)
                 _keyquest_ocr_return("Live OCR could not start on this game. Try a one-shot scan.")
                 return
@@ -344,6 +354,7 @@ init python:
             try:
                 _keyquest_submit_local(state.watch, state.region)
             except Exception as error:
+                _keyquest_trace("ocr_error", stage="live_capture")
                 renpy.log("Keyquest live OCR: " + repr(error))
                 _keyquest_ocr_return("Could not capture the game screen.")
 
@@ -361,6 +372,7 @@ init python:
         _keyquest_press(key, " " if key == "SPACE" else key if len(key) == 1 else "")
 
     def _keyquest_insert_text(text):
+        _keyquest_trace("ocr_typing", length=len(text))
         import pygame
         # SDL2 text input holds at most 31 UTF-8 bytes per event.
         chunk = u""
@@ -379,6 +391,7 @@ init python:
         return choices[(choices.index(value) + 1) % len(choices)]
 
     def _keyquest_start_repeat(sequence, loops, interval, region):
+        _keyquest_trace("repeat_started", keys=len(sequence), loops=loops, interval=interval)
         _keyquest_ocr_reset()
         renpy.store._keyquest_repeat_job = (sequence, loops, interval, region, 0)
         renpy.hide_screen("_keyquest_smart_input")
