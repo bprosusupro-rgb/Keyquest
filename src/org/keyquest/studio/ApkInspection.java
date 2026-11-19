@@ -25,19 +25,20 @@ final class ApkInspection {
             "(?<![0-9.])(\\d+\\.\\d+\\.\\d+)\\.\\d{5,}(?![0-9.])");
 
     final boolean universalRenpy;
-    final boolean alreadyPatched, valuesIncluded, automationIncluded;
+    final boolean alreadyPatched, valuesIncluded, automationIncluded, ocrIncluded;
     final String engineVersion;
     final String pythonAbi;
     final String fingerprintFamily;
     final String fingerprintSuggestion;
 
     private ApkInspection(boolean universalRenpy, boolean alreadyPatched, boolean valuesIncluded,
-                          boolean automationIncluded, String engineVersion, String pythonAbi,
+                          boolean automationIncluded, boolean ocrIncluded, String engineVersion, String pythonAbi,
                           String fingerprintFamily, String fingerprintSuggestion) {
         this.universalRenpy = universalRenpy;
         this.alreadyPatched = alreadyPatched;
         this.valuesIncluded = valuesIncluded;
         this.automationIncluded = automationIncluded;
+        this.ocrIncluded = ocrIncluded;
         this.engineVersion = engineVersion;
         this.pythonAbi = pythonAbi;
         this.fingerprintFamily = fingerprintFamily;
@@ -90,7 +91,8 @@ final class ApkInspection {
             return new ApkInspection(gameScripts,
                     apk.getEntry(ApkBuilder.OVERLAY) != null,
                     apk.getEntry(ApkBuilder.VALUES) != null,
-                    apk.getEntry(ApkBuilder.AUTOMATION) != null, version, pythonAbi,
+                    apk.getEntry(ApkBuilder.AUTOMATION) != null,
+                    apk.getEntry(ApkBuilder.OCR) != null, version, pythonAbi,
                     fingerprint == null ? null : fingerprint.verifiedFamily,
                     fingerprint == null ? null : fingerprint.suggestedFamily);
         }

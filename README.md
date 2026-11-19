@@ -31,6 +31,16 @@ Enable **Include macro writer and auto-clicker** in Studio before building. The 
 
 Automation uses Ren’Py/SDL2 events inside the rebuilt game. It is intended for local gameplay. Target behavior still depends on the game’s input code and the Quest runtime. Ren’Py 8.6 moved to SDL3 and has no bundled profile.
 
+### Smart Input
+
+Enable **Include Smart Input** when building or updating the APK. In the game, open **Keyboard → OCR**. Keep Keyquest Studio installed so the game can use its offline recognition engine.
+
+- **Copy text** reads English on the game screen and types it into the active field. Open the field before scanning.
+- **Solve math** reads one arithmetic expression and types the answer. It supports addition, subtraction, multiplication, division, and parentheses. Choose **Top** or **Center** if unrelated text makes it hard to find the problem.
+- **Repeat key** sends a key-down and key-up at the chosen interval. Pick a key and press count, then select **Start**. Select **Stop repeat** to end the run early.
+
+**Scan & type** captures one frame after the panel folds away. Studio processes it locally and returns the text to the game. Text and math modes use the game's text-input event, and the game controls which characters it accepts. The Android recognition round trip still needs verification on a Quest headset.
+
 ### Optional value editor
 
 Before building, tick **Include local value editor**. In the patched game, tap the corner logo and choose **Values**. Select a suggested value such as `money` or enter the exact variable name. Tap **Edit new value**, enter a number, then tap **Apply value**. Use **Keys** if you need the on-screen keyboard.
@@ -49,9 +59,11 @@ Run `build.sh path/to/KeyquestStudio.apk` on Linux with Java and zip. Set the fo
 - `BUILD_TOOLS` — Android SDK Build Tools 35 directory
 - `APKSIG_JAR` — Google Maven artifact `com.android.tools.build:apksig:8.7.3`
 - `ECJ_JAR` — Eclipse Java compiler 3.39.0
+- `TESSERACT_AAR` — [Tesseract4Android 4.9.0 AAR](https://jitpack.io/cz/adaptech/tesseract4android/tesseract4android/4.9.0/tesseract4android-4.9.0.aar)
+- `OCR_ENGLISH_DATA` — [English tessdata_fast model](https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/923915d4ced2a7235221788285785a29c4a42d4a/eng.traineddata)
 - `SIGNING_KEYSTORE`, `SIGNING_ALIAS`, `SIGNING_PASSWORD` — signing configuration for the Studio APK
 
-The bundled scripts are compiled with SDKs 7.8.7, 8.0.3, 8.1.3, 8.2.3, 8.3.7, 8.4.1, and 8.5.2. Run `./compile-profile.sh /path/to/renpy-sdk 8_4` to regenerate a profile. For a project you can rebuild from source, copy the overlay script and `assets/keyquest_*.png` into its `game/` folder. Include `game/keyquest_values.rpy` for the editor and `game/keyquest_automation.rpy` for macros and clicks, then export from Ren’Py with the original key.
+The bundled scripts are compiled with SDKs 7.8.7, 8.0.3, 8.1.3, 8.2.3, 8.3.7, 8.4.1, and 8.5.2. Run `./compile-profile.sh /path/to/renpy-sdk 8_4` to regenerate a profile. For a project you can rebuild from source, copy the overlay script and `assets/keyquest_*.png` into its `game/` folder. Include `game/keyquest_values.rpy` for the editor and `game/keyquest_automation.rpy` for macros and clicks, and `game/keyquest_ocr.rpy` for Smart Input, then export from Ren’Py with the original key. The Studio APK packages the ARM64 OCR libraries used by Quest 3 and 3S. Third-party notices are in `assets/ocr-licenses/`.
 
 ## Design
 

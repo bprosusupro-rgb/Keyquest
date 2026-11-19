@@ -38,7 +38,10 @@ style keyquest_key_text is button_text:
 
 screen _keyquest_launcher():
     zorder 990
+    $ visibility = 0.0 if renpy.get_screen("_keyquest_ocr_capture") else 1.0
     button:
+        at Transform(alpha=visibility)
+        sensitive bool(visibility)
         align (0.98, 0.95)
         background Frame("keyquest_panel.png", 24, 24)
         hover_background Frame("keyquest_panel_mint.png", 24, 24)
@@ -111,6 +114,8 @@ screen _keyquest_keyboard():
                             textbutton "Values" style "keyquest_deck_key" action [Hide("_keyquest_keyboard"), ToggleScreen("_keyquest_values")]
                         if renpy.has_screen("_keyquest_automation"):
                             textbutton "Macros" style "keyquest_deck_key" action [Hide("_keyquest_keyboard"), Show("_keyquest_automation")]
+                        if renpy.has_screen("_keyquest_smart_input"):
+                            textbutton "OCR" style "keyquest_deck_key" action [Hide("_keyquest_keyboard"), Show("_keyquest_smart_input")]
                         textbutton ("Done" if settings_open else "Settings") style "keyquest_deck_key" action ToggleScreenVariable("settings_open")
                         textbutton "Close" style "keyquest_deck_key" action Hide("_keyquest_keyboard")
                     if settings_open:

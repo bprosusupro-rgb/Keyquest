@@ -1,8 +1,11 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.keyquest.studio" android:versionCode="11" android:versionName="1.0.8">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.keyquest.studio" android:versionCode="12" android:versionName="1.0.9">
   <uses-sdk android:minSdkVersion="30" android:targetSdkVersion="35"/>
   <queries><intent><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent></queries>
   <application android:label="Keyquest Studio" android:icon="@drawable/studio_brand" android:allowBackup="false" android:theme="@android:style/Theme.Material.NoActionBar">
     <meta-data android:name="com.oculus.supportedDevices" android:value="quest3|quest3s"/>
+    <activity android:name=".OcrActivity" android:exported="true"
+        android:excludeFromRecents="true" android:configChanges="orientation|screenSize|keyboardHidden"
+        android:theme="@android:style/Theme.Translucent.NoTitleBar"/>
     <activity android:name=".Studio" android:exported="true" android:configChanges="orientation|screenSize|keyboardHidden" android:resizeableActivity="true">
       <layout android:defaultWidth="960dp" android:defaultHeight="660dp"/>
       <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>

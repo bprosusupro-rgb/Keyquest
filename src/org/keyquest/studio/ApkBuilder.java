@@ -12,6 +12,7 @@ final class ApkBuilder {
     static final String OVERLAY = "assets/x-game/x-keyquest_overlay.rpyc";
     static final String VALUES = "assets/x-game/x-keyquest_values.rpyc";
     static final String AUTOMATION = "assets/x-game/x-keyquest_automation.rpyc";
+    static final String OCR = "assets/x-game/x-keyquest_ocr.rpyc";
     static final String[] ARTWORK = {"logo", "panel", "panel_mint", "key", "key_focus", "sheet"};
 
     static String artworkPath(String name) {
@@ -19,7 +20,7 @@ final class ApkBuilder {
     }
 
     private static boolean studioAsset(String path) {
-        if (path.equals(OVERLAY) || path.equals(VALUES) || path.equals(AUTOMATION)) return true;
+        if (path.equals(OVERLAY) || path.equals(VALUES) || path.equals(AUTOMATION) || path.equals(OCR)) return true;
         for (String name : ARTWORK) {
             if (path.equals(artworkPath(name))) return true;
         }

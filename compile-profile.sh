@@ -13,3 +13,4 @@ SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy "$sdk/renpy.sh" "$scratch" lint
 cp "$scratch/game/keyquest_overlay.rpyc" "$project/assets/keyquest_$profile.rpyc"
 cp "$scratch/game/keyquest_values.rpyc" "$project/assets/keyquest_values_$profile.rpyc"
 cp "$scratch/game/keyquest_automation.rpyc" "$project/assets/keyquest_automation_$profile.rpyc"
+cp "$scratch/game/keyquest_ocr.rpyc" "$project/assets/keyquest_ocr_$profile.rpyc"
