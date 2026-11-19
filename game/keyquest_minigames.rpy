@@ -25,6 +25,10 @@ init python:
         moves = ()
         signatures = {}
         pending = None
+        tile_target = ()
+        tile_seen = None
+        tile_seen_count = 0
+        tile_wait_until = 0.0
         next_tap = 0.0
 
     _keyquest_minigame = _KeyquestMinigameState()
@@ -167,6 +171,14 @@ init python:
         state.message = ""
         state.deadline = _kq_puzzle_time.time() + (22 + len(state.moves) if job == "tile-play" else 22)
         state.next_tap = 0.0
+        state.tile_seen = None
+        state.tile_seen_count = 0
+        state.tile_wait_until = 0.0
+        if job in ("tile-play", "tile-step"):
+            target = state.tiles
+            for step in state.moves:
+                target = _keyquest_slide_tile(target, step)
+            state.tile_target = target
         if job == "tile-scan":
             state.moves = ()
             state.tile_goal = ()
@@ -184,6 +196,8 @@ init python:
         import pygame
         x, y = _keyquest_board_point(_keyquest_board(), side, index)
         point = tuple(map(int, renpy.display.draw.untranslate_point(int(x * config.screen_width), int(y * config.screen_height))))
+        pygame.event.post(pygame.event.Event(pygame.MOUSEMOTION,
+                         pos=point, rel=(0, 0), buttons=(0, 0, 0), touch=False, which=0))
         for kind in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP):
             pygame.event.post(pygame.event.Event(kind, button=1, pos=point, touch=False, which=0))
 
@@ -451,47 +465,106 @@ init python:
             state.tile_busy = False
             raise
 
-    def _keyquest_same_tiles(expected, signatures, side):
-        points = _keyquest_tile_centers
-        frame, board = _keyquest_frame(), _keyquest_board()
-        for index, tile in enumerate(expected):
-            colors = _keyquest_cell_samples(frame, board, side, index, points)
-            if _keyquest_pixel_difference(colors, signatures[tile]) > 19:
-                return False
-        return True
+    def _keyquest_slide_tile(tiles, index):
+        moved = list(tiles)
+        blank = tiles.index(0)
+        moved[blank], moved[index] = moved[index], 0
+        return tuple(moved)
+
+    def _keyquest_tile_appearance(colors, reference):
+        # Ignore the two largest local changes, such as a pointer covering a sample.
+        distances = sorted(sum(abs(a - b) for a, b in zip(pixel, original)) / 3.0
+                           for pixel, original in zip(colors, reference))
+        return sum(distances[:-2]) / float(len(distances) - 2)
+
+    def _keyquest_observe_tiles(samples, signatures, current, expected):
+        empty = [index for index, pixels in enumerate(samples) if sum(max(p) <= 31 for p in pixels) >= 8]
+        if len(empty) != 1:
+            return None
+        blank = empty[0]
+        for board in (expected, current):
+            if board is not None and board.index(0) == blank and all(
+                    _keyquest_tile_appearance(samples[i], signatures[tile]) <= 28
+                    for i, tile in enumerate(board) if tile):
+                return board
+
+        # Replan only when each tile has an unambiguous visual identity.
+        identified = []
+        for i, pixels in enumerate(samples):
+            if i == blank:
+                identified.append(0)
+                continue
+            ranking = sorted((_keyquest_tile_appearance(pixels, signature), tile)
+                             for tile, signature in signatures.items() if tile)
+            best, tile = ranking[0]
+            if best > 24 or ranking[1][0] - best < 4:
+                return None
+            identified.append(tile)
+        return tuple(identified) if len(set(identified)) == len(samples) else None
+
+    def _keyquest_send_tile_move(state, now, retry=False):
+        index = state.moves[0]
+        state.pending = (_keyquest_slide_tile(state.tiles, index), now + (3.2 if retry else 2.2), retry)
+        state.tile_seen = None
+        state.tile_seen_count = 0
+        state.next_tap = now + 0.23
+        _keyquest_puzzle_click(index, state.tile_side)
+
+    def _keyquest_accept_tile_board(state, observed, expected, now):
+        state.pending = None
+        state.tile_wait_until = 0.0
+        state.next_tap = now + 0.16
+        if observed == expected:
+            state.moves = state.moves[1:]
+        else:
+            try:
+                state.moves = _keyquest_tile_moves(observed, state.tile_target, state.tile_side)
+            except ValueError:
+                _keyquest_show_minigame("Could not match the changed board. Scan it again.", clear_moves=True)
+                return
+        state.tiles = observed
+        if not state.moves:
+            _keyquest_show_minigame("The planned tile moves are complete.")
+        elif state.job == "tile-step":
+            message = "Move checked." if observed == expected else "Board changed. Plan updated."
+            _keyquest_show_minigame("%s %d remaining." % (message, len(state.moves)))
 
     def _keyquest_step_tiles(state, now):
-        if state.pending is not None:
-            expected, until = state.pending
-            if _keyquest_same_tiles(expected, state.signatures, state.tile_side):
-                state.tiles = expected
-                state.moves = state.moves[1:]
-                state.pending = None
-                if not state.moves:
-                    _keyquest_show_minigame("The planned tile moves are complete.")
-                elif state.job == "tile-step":
-                    _keyquest_show_minigame("Move checked. %d remaining." % len(state.moves))
-                else:
-                    state.next_tap = now + 0.15
-            elif now > until:
-                message = "Last move sent. Check the game result." if len(state.moves) == 1 else "The board did not move as expected. Scan it again."
+        expected, until, retried = state.pending or (None, 0.0, False)
+        frame, board, side = _keyquest_frame(), _keyquest_board(), state.tile_side
+        samples = tuple(_keyquest_cell_samples(frame, board, side, i, _keyquest_tile_centers)
+                        for i in range(side * side))
+        observed = _keyquest_observe_tiles(samples, state.signatures, state.tiles, expected)
+        if observed != state.tile_seen:
+            state.tile_seen = observed
+            state.tile_seen_count = 0
+        state.tile_seen_count += 1
+        stable = observed is not None and state.tile_seen_count >= 2
+
+        if stable and observed != state.tiles:
+            _keyquest_accept_tile_board(state, observed, expected, now)
+        elif state.pending:
+            if now < until:
+                return
+            if stable and not retried:
+                _keyquest_send_tile_move(state, now, retry=True)
+            elif stable:
+                _keyquest_show_minigame("The tile did not respond. Move the panel clear, then try Play again.")
+            elif now >= until + 2.0:
+                message = "Last move sent. Check the game result." if len(state.moves) == 1 else "The board could not be confirmed. Move the panel clear and scan again."
                 _keyquest_show_minigame(message, clear_moves=True)
-            return
-        if not _keyquest_same_tiles(state.tiles, state.signatures, state.tile_side):
-            _keyquest_show_minigame("The board changed. Scan it again.", clear_moves=True)
-            return
-        index = state.moves[0]
-        blank = state.tiles.index(0)
-        expected = list(state.tiles)
-        expected[blank], expected[index] = expected[index], 0
-        state.pending = tuple(expected), now + 1.4
-        _keyquest_puzzle_click(index, state.tile_side)
-        state.next_tap = now + 0.23
+        elif stable:
+            state.tile_wait_until = 0.0
+            _keyquest_send_tile_move(state, now)
+        elif not state.tile_wait_until:
+            state.tile_wait_until = now + 3.0
+        elif now >= state.tile_wait_until:
+            _keyquest_show_minigame("The board is hard to read. Move the panel clear, then try Play again.")
 
     def _keyquest_minigame_tick():
         state = _keyquest_minigame
         job = state.job
-        if job is None:
+        if job is None or _keyquest_panel_grabbed():
             return
         now = _kq_puzzle_time.time()
         if now > state.deadline:

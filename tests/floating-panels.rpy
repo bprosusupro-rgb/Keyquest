@@ -21,6 +21,13 @@ init python:
         if kind is not None:
             pygame.event.post(pygame.event.Event(kind, button=1, pos=physical, touch=False, which=0))
 
+    def _kq_message_during_ocr_drag():
+        assert _keyquest_panel_grabbed()
+        state = _keyquest_scan_state
+        _keyquest_vision.response = (state.request, "3+4=?", None)
+        _keyquest_watch_tick()
+        assert state.watch_value is None and state.watch_paused
+
 label start:
     $ import pygame
     $ persistent.keyquest_panel_positions = {}
@@ -74,7 +81,19 @@ label start:
     $ _keyquest_scan_state.watch = "math"
     show screen _keyquest_live_ocr
     $ renpy.pause(0.12, hard=True)
-    $ _kq_panel("_keyquest_live_ocr", "ocr-live")
+    $ panel = _kq_panel("_keyquest_live_ocr", "ocr-live")
+    $ _keyquest_vision.busy = True
+    $ original_request = _keyquest_scan_state.request
+    show screen _kq_test_drag_stroke(panel.x + 30, panel.y + 25, live=True)
+    $ renpy.pause(0.85, hard=True)
+    hide screen _kq_test_drag_stroke
+    $ assert "keyquest-ocr-live" in persistent.keyquest_panel_positions
+    $ assert not _keyquest_panel_grabbed() and not _keyquest_scan_state.watch_paused
+    $ assert _keyquest_scan_state.request > original_request and _keyquest_scan_state.watch_value is None
+    $ _keyquest_vision.response = (_keyquest_scan_state.request, "6*7=?", None)
+    $ renpy.pause(0.25, hard=True)
+    $ assert _keyquest_scan_state.watch_value == "42"
+    $ _keyquest_vision.busy = False
     $ _keyquest_ocr_reset()
     $ _keyquest_start_repeat(("s",), 1, 10, "full")
     $ renpy.pause(0.12, hard=True)
@@ -103,8 +122,10 @@ label start:
     $ print("Keyquest floating panel drag, reopen, and launcher checks passed.")
     $ renpy.quit()
 
-screen _kq_test_drag_stroke(x, y):
+screen _kq_test_drag_stroke(x, y, live=False):
     timer 0.05 action Function(_kq_mouse, None, x, y, _update_screens=False)
     timer 0.2 action Function(_kq_mouse, pygame.MOUSEBUTTONDOWN, x, y, _update_screens=False)
+    if live:
+        timer 0.3 action Function(_kq_message_during_ocr_drag, _update_screens=False)
     timer 0.35 action Function(_kq_mouse, None, x + 55, y + 40, _update_screens=False)
     timer 0.5 action Function(_kq_mouse, pygame.MOUSEBUTTONUP, x + 55, y + 40, _update_screens=False)

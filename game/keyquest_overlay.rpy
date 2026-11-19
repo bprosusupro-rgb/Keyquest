@@ -25,6 +25,11 @@ init python:
             persistent.keyquest_panel_positions = positions
             renpy.restart_interaction()
 
+    def _keyquest_panel_grabbed():
+        grabbed = renpy.display.focus.get_grab()
+        name = getattr(grabbed, "drag_name", None)
+        return bool(name and name.startswith("keyquest-"))
+
     def _keyquest_reset_panels():
         persistent.keyquest_position = None
         persistent.keyquest_panel_positions = {}

@@ -17,6 +17,7 @@ init python:
         native = False
         activity = None
         watch = None
+        watch_paused = False
         watch_value = None
         watch_index = 0
         watch_confirmed = 0.0
@@ -231,6 +232,8 @@ init python:
         renpy.restart_interaction()
 
     def _keyquest_ocr_poll():
+        if _keyquest_panel_grabbed():
+            return
         state = _keyquest_scan_state
         if _kq_time.time() - state.started > 20:
             _keyquest_ocr_return("The scan timed out. Try a smaller scan area.")
@@ -291,6 +294,7 @@ init python:
             _keyquest_ocr_return("Live OCR is unavailable here. One-shot scanning is still available on Android.")
             return
         state.watch = mode
+        state.watch_paused = False
         state.started = _kq_time.time()
         state.watch_confirmed = 0.0
         state.watch_index = 0
@@ -312,7 +316,15 @@ init python:
         state = _keyquest_scan_state
         if state.watch is None:
             return
+        if _keyquest_panel_grabbed():
+            state.watch_paused = True
+            return
         now = _kq_time.time()
+        if state.watch_paused:
+            state.watch_paused = False
+            state.request += 1
+            state.watch_confirmed = 0.0
+            state.next_scan = now
         if now - state.started > 60:
             _keyquest_ocr_return("Live OCR ended after one minute.")
             return
@@ -337,7 +349,8 @@ init python:
 
     def _keyquest_watch_press():
         state = _keyquest_scan_state
-        if (state.watch != "keys" or not state.watch_value or not state.activity
+        if (_keyquest_panel_grabbed() or state.watch_paused or state.watch != "keys"
+                or not state.watch_value or not state.activity
                 or not state.activity.hasWindowFocus() or _kq_time.time() - state.watch_confirmed > 1.5):
             return
         key = state.watch_value[state.watch_index]

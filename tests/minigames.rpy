@@ -1,5 +1,6 @@
 default _test_colors = ("#d60000", "#0000c2", "#01cf00", "#d7cf00")
 default _test_pressed = []
+default _test_hit_count = 0
 default _test_tiles = (1, 2, 3, 4, 5, 6, 7, 0, 8)
 
 init 999 python:
@@ -50,6 +51,14 @@ init 999 python:
             edges[index + 5][0] = edges[index + 1][2]
     assert _keyquest_guess_layout(tuple(current), edges, 4)[1] == _test_goal4
 
+    def _test_slide(index, side):
+        if index not in _keyquest_tile_neighbors(_test_tiles.index(0), side):
+            return
+        renpy.store._test_hit_count += 1
+        if side == 3 and _test_hit_count == 1:
+            return
+        renpy.store._test_tiles = _keyquest_slide_tile(_test_tiles, index)
+
 label start:
     $ persistent.keyquest_minigame_boards = {"colors": (0.17, 0.17, 0.64, 0.61), "tiles": (0.17, 0.17, 0.64, 0.61)}
     $ _keyquest_minigame.mode = "colors"
@@ -79,7 +88,8 @@ label start:
         target[7], target[8] = target[8], target[7]
         _keyquest_minigame.moves = _keyquest_tile_moves(tiles, tuple(target))
         _keyquest_begin_minigame("tile-play")
-    $ renpy.pause(1.7, hard=True)
+    $ renpy.pause(4.0, hard=True)
+    $ assert _test_hit_count == 2, _test_hit_count
     $ assert _test_tiles == _test_goal, _test_tiles
     $ assert not _keyquest_minigame.moves
     $ assert "complete" in _keyquest_minigame.message, _keyquest_minigame.message
@@ -106,7 +116,9 @@ label start:
     $ _keyquest_confirm_layout()
     $ assert _keyquest_minigame.moves
     $ _keyquest_begin_minigame("tile-play")
-    $ renpy.pause(1.7, hard=True)
+    $ _test_tiles = _keyquest_slide_tile(_test_tiles, 10)
+    $ renpy.pause(2.25, hard=True)
+    $ assert _test_hit_count == 4, _test_hit_count
     $ assert _test_tiles == _test_goal4, _test_tiles
     $ assert not _keyquest_minigame.moves
     $ assert "complete" in _keyquest_minigame.message, _keyquest_minigame.message
@@ -143,4 +155,4 @@ screen _kq_test_tiles(side=3):
             anchor (0.5, 0.5)
             xysize (int(config.screen_width * 0.47 / side), int(config.screen_height * 0.44 / side))
             background Solid(palette[tile])
-            action (SetVariable("_test_tiles", _test_goal if side == 3 else _test_goal4) if index == side * side - 1 else NullAction())
+            action Function(_test_slide, index, side)
