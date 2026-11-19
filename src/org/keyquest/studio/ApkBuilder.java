@@ -12,9 +12,9 @@ final class ApkBuilder {
     private static final String OVERLAY = "assets/x-game/x-keyquest_overlay.rpyc";
     private static final long LIMIT = 3_000_000_000L;
 
-    static void build(File source, File unsigned, File result, byte[] overlay,
+    static void build(File source, File unsigned, File result, Map<String, byte[]> assets,
                       ApkSigner.SignerConfig signer) throws Exception {
-        rebuild(source, unsigned, overlay);
+        rebuild(source, unsigned, assets);
         new ApkSigner.Builder(Collections.singletonList(signer))
                 .setInputApk(unsigned).setOutputApk(result).setMinSdkVersion(24)
                 .setV1SigningEnabled(false).setV2SigningEnabled(true)
@@ -24,7 +24,7 @@ final class ApkBuilder {
         }
     }
 
-    static void rebuild(File source, File result, byte[] overlay) throws IOException {
+    static void rebuild(File source, File result, Map<String, byte[]> assets) throws IOException {
         try (ZipFile input = new ZipFile(source)) {
             Set<String> names = new HashSet<>();
             boolean scripts = false;
@@ -42,7 +42,7 @@ final class ApkBuilder {
             if (!names.contains("AndroidManifest.xml") || !names.contains("assets/private.mp3") || !scripts) {
                 throw new IOException("Choose a single Ren’Py APK with the standard universal layout.");
             }
-            if (names.contains(OVERLAY)) throw new IOException("This game already contains Keyquest.");
+            if (names.contains(OVERLAY) || assets.keySet().stream().anyMatch(names::contains)) throw new IOException("This game already contains Keyquest.");
 
             try (Counter bytes = new Counter(new BufferedOutputStream(Files.newOutputStream(result.toPath())));
                  ZipOutputStream output = new ZipOutputStream(bytes)) {
@@ -63,10 +63,11 @@ final class ApkBuilder {
                     }
                     output.closeEntry();
                 }
-                ZipEntry script = new ZipEntry(OVERLAY);
-                output.putNextEntry(script);
-                output.write(overlay);
-                output.closeEntry();
+                for (Map.Entry<String, byte[]> asset : assets.entrySet()) {
+                    output.putNextEntry(new ZipEntry(asset.getKey()));
+                    output.write(asset.getValue());
+                    output.closeEntry();
+                }
             }
         }
     }

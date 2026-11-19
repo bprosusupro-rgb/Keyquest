@@ -33,7 +33,7 @@ public final class Studio extends Activity {
     private TextView selection, status;
     private Button browse, installed, build, save;
     private ProgressBar progress;
-    private CheckBox profile;
+    private CheckBox profile, valuesAddon;
     private Uri sourceUri;
     private String sourcePath;
     private File ready;
@@ -51,7 +51,15 @@ public final class Studio extends Activity {
         scroll.addView(column);
         setContentView(scroll);
 
-        label(column, "Keyquest Studio", 34, WHITE, true);
+        LinearLayout brand = new LinearLayout(this);
+        brand.setGravity(Gravity.CENTER_VERTICAL);
+        column.addView(brand);
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(getResources().getIdentifier("studio_brand", "drawable", getPackageName()));
+        LinearLayout.LayoutParams logoLayout = new LinearLayout.LayoutParams(dp(58), dp(58));
+        logoLayout.rightMargin = dp(12);
+        brand.addView(logo, logoLayout);
+        label(brand, "Keyquest Studio", 32, WHITE, true);
         label(column, "Put a keyboard inside your Ren’Py game.", 17, MUTED, false);
 
         LinearLayout inputs = card(column);
@@ -68,6 +76,12 @@ public final class Studio extends Activity {
         profile.setTextSize(16);
         profile.setButtonTintList(ColorStateList.valueOf(MINT));
         output.addView(profile);
+        valuesAddon = new CheckBox(this);
+        valuesAddon.setText("Add local game value editor");
+        valuesAddon.setTextColor(WHITE);
+        valuesAddon.setTextSize(16);
+        valuesAddon.setButtonTintList(ColorStateList.valueOf(MINT));
+        output.addView(valuesAddon);
         label(output, "Saves a separately signed APK. Back up your saves before replacing the installed game.", 15, MUTED, false);
         build = button(output, "Build keyboard APK", true, view -> confirmBuild());
         save = button(output, "Save to Downloads", true, view -> saveToDownloads());
@@ -131,6 +145,7 @@ public final class Studio extends Activity {
         refresh();
         final Uri uri = sourceUri;
         final String path = sourcePath;
+        final boolean includeValues = valuesAddon.isChecked();
         new Thread(() -> {
             File copied = null, unsigned = null, result = null;
             String message;
@@ -149,13 +164,13 @@ public final class Studio extends Activity {
                 }
                 unsigned = File.createTempFile("rebuild-", ".apk", getCacheDir());
                 result = File.createTempFile("keyboard-", ".apk", getCacheDir());
-                byte[] overlay;
-                try (InputStream input = getAssets().open("keyquest_8_4_1.rpyc");
-                     ByteArrayOutputStream data = new ByteArrayOutputStream()) {
-                    ApkBuilder.copy(input, data, 1024 * 1024);
-                    overlay = data.toByteArray();
+                Map<String, byte[]> gameAssets = new LinkedHashMap<>();
+                gameAssets.put("assets/x-game/x-keyquest_overlay.rpyc", readAsset("keyquest_8_4_1.rpyc"));
+                gameAssets.put("assets/x-game/x-keyquest_logo.png", readAsset("keyquest_logo.png"));
+                if (includeValues) {
+                    gameAssets.put("assets/x-game/x-keyquest_values.rpyc", readAsset("keyquest_values_8_4_1.rpyc"));
                 }
-                ApkBuilder.build(source, unsigned, result, overlay, signer());
+                ApkBuilder.build(source, unsigned, result, gameAssets, signer());
                 message = "APK verified. Save it to Downloads.";
             } catch (Exception error) {
                 if (result != null) result.delete();
@@ -174,6 +189,14 @@ public final class Studio extends Activity {
                 refresh();
             });
         }, "keyquest-build").start();
+    }
+
+    private byte[] readAsset(String name) throws IOException {
+        try (InputStream input = getAssets().open(name);
+             ByteArrayOutputStream data = new ByteArrayOutputStream()) {
+            ApkBuilder.copy(input, data, 1024 * 1024);
+            return data.toByteArray();
+        }
     }
 
     private static ApkSigner.SignerConfig signer() throws Exception {
@@ -260,6 +283,7 @@ public final class Studio extends Activity {
         browse.setEnabled(!busy);
         installed.setEnabled(!busy);
         profile.setEnabled(!busy);
+        valuesAddon.setEnabled(!busy);
         build.setEnabled(!busy && profile.isChecked() && (sourceUri != null || sourcePath != null));
         save.setVisibility(ready == null ? View.GONE : View.VISIBLE);
         save.setEnabled(!busy);

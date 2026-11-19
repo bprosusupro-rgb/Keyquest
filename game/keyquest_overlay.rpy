@@ -20,21 +20,24 @@ default persistent.keyquest_quick_one = "s"
 default persistent.keyquest_quick_two = "i"
 
 style keyquest_key is button:
-    background Solid("#263950")
-    hover_background Solid("#406677")
+    background Solid("#edf3fb")
+    hover_background Solid("#b8f1e3")
     padding (14, 9)
     yminimum 44
 
 style keyquest_key_text is button_text:
-    color "#f3fffa"
+    color "#152538"
     size 24
 
 screen _keyquest_launcher():
     zorder 990
-    textbutton "Keyboard":
-        style "keyquest_key"
-        align (0.99, 0.04)
+    button:
+        align (0.985, 0.975)
+        background None
+        padding (4, 4)
         action ToggleScreen("_keyquest_keyboard")
+        alternate (ToggleScreen("_keyquest_values") if renpy.has_screen("_keyquest_values") else NullAction())
+        add "keyquest_logo.png" xysize (max(44, min(68, config.screen_width // 16)), max(44, min(68, config.screen_width // 16)))
 
 screen _keyquest_keyboard():
     zorder 991
@@ -52,6 +55,8 @@ screen _keyquest_keyboard():
                 spacing 6
                 for quick in (persistent.keyquest_quick_one, persistent.keyquest_quick_two):
                     textbutton quick.upper() style "keyquest_key" action Function(_keyquest_press, quick, quick, _update_screens=False)
+                if renpy.has_screen("_keyquest_values"):
+                    textbutton "Values" style "keyquest_key" action [Hide("_keyquest_keyboard"), ToggleScreen("_keyquest_values")]
                 textbutton "Settings" style "keyquest_key" action ToggleScreenVariable("settings_open")
                 textbutton "Close" style "keyquest_key" action Hide("_keyquest_keyboard")
             if settings_open:
@@ -77,5 +82,8 @@ screen _keyquest_keyboard():
                 spacing 6
                 textbutton "Shift" style "keyquest_key" action SetScreenVariable("caps", not caps)
                 textbutton "Space" style "keyquest_key" action Function(_keyquest_press, "SPACE", " ", _update_screens=False)
+                textbutton "." style "keyquest_key" action Function(_keyquest_press, "PERIOD", ".", _update_screens=False)
+                textbutton "-" style "keyquest_key" action Function(_keyquest_press, "MINUS", "-", _update_screens=False)
+                textbutton "_" style "keyquest_key" action Function(_keyquest_press, "MINUS", "_", _update_screens=False)
                 textbutton "Backspace" style "keyquest_key" action Function(_keyquest_press, "BACKSPACE", _update_screens=False)
                 textbutton "Enter" style "keyquest_key" action Function(_keyquest_press, "RETURN", _update_screens=False)

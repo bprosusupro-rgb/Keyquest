@@ -1,0 +1,65 @@
+# Optional editor for existing numeric values in the current local game store.
+
+init python:
+    def _keyquest_read_value(name):
+        import re
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", name):
+            return None
+        value = vars(renpy.store).get(name)
+        return value if type(value) in (int, float) else None
+
+    def _keyquest_write_value(name, text):
+        import math
+        current = _keyquest_read_value(name)
+        if current is None:
+            renpy.set_screen_variable("feedback", "This name does not match a numeric game value.")
+            return
+        try:
+            value = type(current)(text.strip())
+            if not math.isfinite(value) or abs(value) > 1000000000000:
+                raise ValueError()
+        except (ValueError, OverflowError):
+            renpy.set_screen_variable("feedback", "Enter a valid number of the same type (up to 1 trillion).")
+            return
+        setattr(renpy.store, name, value)
+        renpy.set_screen_variable("feedback", "{}: {} → {}".format(name, current, value))
+
+screen _keyquest_values():
+    zorder 992
+    default name = ""
+    default amount = ""
+    default feedback = "Choose a suggested value or enter its exact name."
+    $ name_input = ScreenVariableInputValue("name", default=False)
+    $ amount_input = ScreenVariableInputValue("amount", default=False)
+    $ current = _keyquest_read_value(name.strip())
+    $ suggestions = [item for item in ("money", "cash", "gold", "coins", "balance", "credits", "gems") if _keyquest_read_value(item) is not None]
+    frame:
+        align (0.5, 0.16)
+        at Transform(zoom=min(1.0, config.screen_width / 620.0))
+        xsize 565
+        padding (20, 16)
+        background Solid("#f5f8fff8")
+        vbox:
+            spacing 8
+            hbox:
+                spacing 12
+                text "Local game values" color "#152538" size 30
+                textbutton "Keys" style "keyquest_key" action Show("_keyquest_keyboard")
+                textbutton "Close" style "keyquest_key" action Hide("_keyquest_values")
+            if suggestions:
+                hbox:
+                    spacing 4
+                    for item in suggestions[:4]:
+                        textbutton item style "keyquest_key" action SetScreenVariable("name", item)
+            textbutton "Edit variable name" style "keyquest_key" action name_input.Enable()
+            frame:
+                background Solid("#dee8f4")
+                input value name_input length 64 pixel_width 480 color "#152538" size 23
+            if current is not None:
+                text "Current value: [current]" color "#405264" size 21
+            textbutton "Edit new value" style "keyquest_key" action amount_input.Enable()
+            frame:
+                background Solid("#dee8f4")
+                input value amount_input length 24 pixel_width 480 allow "0123456789.-" color "#152538" size 23
+            textbutton "Apply value" style "keyquest_key" action Function(_keyquest_write_value, name.strip(), amount)
+            text feedback color "#405264" size 19
