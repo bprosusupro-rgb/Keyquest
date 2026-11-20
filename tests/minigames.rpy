@@ -4,8 +4,38 @@ default _test_reject_color = False
 default _test_hit_count = 0
 default _test_dim_blank = False
 default _test_tiles = (1, 2, 3, 4, 5, 6, 7, 0, 8)
+default _test_timing_y = 0.5
+default _test_timing_clicks = 0
+default _test_paddle_motions = []
 
 init 999 python:
+    def _test_arcade_detectors():
+        import pygame
+        frame = pygame.Surface((480, 270))
+        frame.fill((60, 87, 42))
+        white = (239, 230, 202)
+        frame.fill(white, (238, 43, 2, 177))
+        frame.fill(white, (110, 80, 270, 1))
+        frame.fill(white, (111, 94, 3, 40))
+        pygame.draw.circle(frame, white, (208, 116), 4)
+        bounds = (0.22, 0.16, 0.80, 0.82)
+        ball = _keyquest_paddle_ball(frame, bounds)
+        assert ball is not None and abs(ball[0] - 208.0 / 480) < 0.01
+        target = _keyquest_paddle_target((0.32, 0.65), (0.34, 0.59), bounds, "left")
+        assert abs(target[0] - 0.24) < 0.01 and 0.65 < target[1] < 0.82
+
+    def _test_timing_press():
+        renpy.store._test_timing_clicks += 1
+
+    class _TestPaddleMotion(renpy.Displayable):
+        def render(self, width, height, st, at):
+            return renpy.Render(width, height)
+
+        def event(self, ev, x, y, st):
+            import pygame
+            if ev.type == pygame.MOUSEMOTION:
+                _test_paddle_motions.append((x, y))
+
     def _test_runtime_state_and_tile_crop():
         import pickle
         import threading
@@ -130,6 +160,7 @@ init 999 python:
             renpy.store._test_dim_blank = True
 
 label start:
+    $ _test_arcade_detectors()
     $ _test_runtime_state_and_tile_crop()
     $ persistent.keyquest_minigame_boards = {"colors": (0.17, 0.17, 0.64, 0.61), "tiles": (0.30, 0.31, 0.95, 0.94)}
     $ _keyquest_minigame.mode = "colors"
@@ -241,7 +272,44 @@ label start:
     $ assert _test_hit_count == 7, _test_hit_count
     $ assert "complete" in _keyquest_minigame.message, _keyquest_minigame.message
     $ print("Keyquest minigame detection and verified clicks passed.")
+    hide screen _keyquest_minigames
+    hide screen _kq_test_tiles
+    $ _keyquest_minigame.mode = "timing"
+    show screen _kq_test_timing_track
+    $ renpy.pause(0.2, hard=True)
+    $ _keyquest_begin_minigame("timing")
+    $ renpy.pause(0.55, hard=True)
+    $ assert _test_timing_clicks == 0, _test_timing_clicks
+    $ _test_timing_y = 0.32
+    $ renpy.pause(0.6, hard=True)
+    $ assert _test_timing_clicks == 1, _test_timing_clicks
+    $ _test_timing_y = 0.46
+    $ renpy.pause(0.35, hard=True)
+    $ _test_timing_y = 0.33
+    $ renpy.pause(0.45, hard=True)
+    $ assert _test_timing_clicks == 2, _test_timing_clicks
+    $ _keyquest_stop_minigame()
+    hide screen _kq_test_timing_track
+    $ _keyquest_minigame.mode = "paddle"
+    show screen _kq_test_paddle_court
+    $ renpy.pause(0.2, hard=True)
+    $ _keyquest_begin_minigame("paddle")
+    $ renpy.pause(0.55, hard=True)
+    $ assert any(abs(x - config.screen_width * 0.24) <= 3 and abs(y - config.screen_height * 0.41) < 9 for x, y in _test_paddle_motions), _test_paddle_motions
+    $ _keyquest_stop_minigame()
+    $ print("Keyquest paddle tracking and one timing tap per pass worked.")
     $ renpy.quit()
+
+screen _kq_test_timing_track():
+    add Solid("#bba579")
+    add Solid("#d81914") xpos 0.35 ypos 0.22 xysize (6, int(config.screen_height * 0.2))
+    add Solid("#163fc8") xpos 0.349 ypos _test_timing_y xysize (15, 7)
+    key "mouseup_1" action Function(_test_timing_press, _update_screens=False)
+
+screen _kq_test_paddle_court():
+    add Solid("#364b35")
+    add Solid("#efe8ca") xpos 0.47 ypos 0.40 xysize (13, 13)
+    add _TestPaddleMotion()
 
 screen _kq_test_colors():
     $ bounds = persistent.keyquest_minigame_boards["colors"]

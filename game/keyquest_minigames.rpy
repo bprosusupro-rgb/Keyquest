@@ -1,4 +1,4 @@
-# Local helpers for a four-color memory board and 3 by 3 and 4 by 4 sliding puzzles.
+# Local helpers for memory, sliding tiles, paddle, and timing minigames.
 
 default persistent.keyquest_minigame_boards = {}
 
@@ -36,6 +36,10 @@ init python:
         tile_seen_count = 0
         tile_wait_until = 0.0
         next_tap = 0.0
+        timing_armed = True
+        paddle_side = "left"
+        ball = None
+        ball_at = 0.0
 
     _keyquest_minigame = _KeyquestMinigameState()
     _keyquest_color_names = ("Red", "Blue", "Green", "Yellow")
@@ -106,9 +110,15 @@ init python:
             if state.corner is None:
                 state.corner = point
                 renpy.restart_interaction()
-            elif _keyquest_valid_board(state.corner, point):
+            elif (_keyquest_valid_board(state.corner, point) if state.mode != "timing"
+                  else point[1] - state.corner[1] >= 0.15 and abs(point[0] - state.corner[0]) <= 0.06):
                 boards = dict(persistent.keyquest_minigame_boards)
-                boards[_keyquest_board_key()] = state.corner + point
+                if state.mode == "timing":
+                    center = (state.corner[0] + point[0]) / 2.0
+                    boards[_keyquest_board_key()] = (max(0, center - 0.026), state.corner[1],
+                                                     min(1, center + 0.026), point[1])
+                else:
+                    boards[_keyquest_board_key()] = state.corner + point
                 persistent.keyquest_minigame_boards = boards
                 _keyquest_trace("board_calibrated", mode=_keyquest_board_key(), bounds=boards[_keyquest_board_key()])
                 state.sequence = () if state.mode == "colors" else state.sequence
@@ -125,7 +135,9 @@ init python:
         return state.mode
 
     def _keyquest_board():
-        return persistent.keyquest_minigame_boards.get(_keyquest_board_key())
+        default = {"paddle": (0.22, 0.16, 0.80, 0.82), "timing": (0.318, 0.005, 0.385, 0.59)}
+        key = _keyquest_board_key()
+        return persistent.keyquest_minigame_boards.get(key, default.get(key))
 
     def _keyquest_board_point(board, side, index, u=0.5, v=0.5):
         left, top, right, bottom = board
@@ -260,7 +272,11 @@ init python:
         state.job = job
         _keyquest_trace("minigame_started", job=job, side=state.tile_side, remaining=len(state.moves))
         state.message = ""
-        state.deadline = _kq_puzzle_time.time() + (22 + len(state.moves) if job == "tile-play" else 22)
+        duration = 120 if job in ("paddle", "timing") else 22
+        state.deadline = _kq_puzzle_time.time() + duration + (len(state.moves) if job == "tile-play" else 0)
+        if job in ("paddle", "timing"):
+            state.ball = None
+            state.timing_armed = True
         state.next_tap = 0.0
         state.color_event = None
         state.tile_seen = None
@@ -271,7 +287,7 @@ init python:
             for step in state.moves:
                 target = _keyquest_slide_tile(target, step)
             state.tile_target = target
-        if job.startswith("tile-") or job in ("watch", "color-play"):
+        if job.startswith("tile-") or job in ("watch", "color-play", "paddle", "timing"):
             for panel in ("_keyquest_keyboard", "_keyquest_values", "_keyquest_automation", "_keyquest_pick_target"):
                 renpy.hide_screen(panel)
         if job == "tile-scan":
@@ -292,15 +308,147 @@ init python:
         renpy.show_screen("_keyquest_minigame_delay")
 
     def _keyquest_puzzle_click(index, side):
-        import pygame
         board = _keyquest_minigame.tile_bounds if side in (3, 4) else None
         points = _keyquest_minigame.color_points if side == 2 else ()
-        x, y = points[index] if points else _keyquest_board_point(board or _keyquest_board(), side, index)
+        point = points[index] if points else _keyquest_board_point(board or _keyquest_board(), side, index)
+        _keyquest_puzzle_pointer(point, click=True)
+
+    def _keyquest_puzzle_pointer(position, click=False):
+        import pygame
+        x, y = position
         point = tuple(map(int, renpy.display.draw.untranslate_point(int(x * config.screen_width), int(y * config.screen_height))))
         pygame.event.post(pygame.event.Event(pygame.MOUSEMOTION,
                          pos=point, rel=(0, 0), buttons=(0, 0, 0), touch=False, which=0))
-        for kind in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP):
-            pygame.event.post(pygame.event.Event(kind, button=1, pos=point, touch=False, which=0))
+        if click:
+            for kind in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP):
+                pygame.event.post(pygame.event.Event(kind, button=1, pos=point, touch=False, which=0))
+
+    def _keyquest_arcade_rect(frame, bounds):
+        width, height = frame.get_size()
+        left, top, right, bottom = bounds
+        return (int(left * width), int(top * height), int(right * width), int(bottom * height))
+
+    def _keyquest_timing_marker(frame, bounds):
+        left, top, right, bottom = _keyquest_arcade_rect(frame, bounds)
+        best = ()
+        rail = None
+        for x in range(left, right):
+            red = []
+            for y in range(top, bottom):
+                r, g, b = tuple(frame.get_at((x, y)))[:3]
+                if r >= 145 and r - g >= 72 and r - b >= 60:
+                    red.append(y)
+            if not red:
+                continue
+            span = red[-1] - red[0] + 1
+            if len(red) >= (bottom - top) * 0.05 and span <= (bottom - top) * 0.7 and len(red) >= span * 0.76:
+                if len(red) > len(best):
+                    best, rail = red, x
+        if rail is None:
+            return None
+        blue = []
+        for y in range(top, bottom):
+            for x in range(max(left, rail - 4), min(right, rail + 5)):
+                r, g, b = tuple(frame.get_at((x, y)))[:3]
+                if b >= 100 and b - r >= 45 and b - g >= 30:
+                    blue.append(y)
+                    break
+        if not blue or blue[-1] - blue[0] + 1 > max(3, (bottom - top) * 0.07):
+            return None
+        return (rail / float(frame.get_width()), (blue[0] + blue[-1]) / 2.0, best[0], best[-1])
+
+    def _keyquest_timing_step(state, marker):
+        if marker is None:
+            return False
+        _, y, top, bottom = marker
+        if not top <= y <= bottom:
+            state.timing_armed = True
+            return False
+        margin = max(1, min(3, (bottom - top) * 0.15))
+        if state.timing_armed and top + margin <= y <= bottom - margin:
+            state.timing_armed = False
+            return True
+        return False
+
+    def _keyquest_paddle_ball(frame, bounds, previous=None):
+        left, top, right, bottom = _keyquest_arcade_rect(frame, bounds)
+        width, height = frame.get_size()
+        diameter = max(4, int(width * 0.024))
+        pixel = frame.get_at
+        bright = set()
+        for y in range(top + 2, bottom - 2):
+            start = None
+            for x in range(left + 2, right - 1):
+                color = pixel((x, y))
+                r, g, b = color[0], color[1], color[2]
+                white = r >= 158 and g >= 158 and b >= 158 and max(r, g, b) - min(r, g, b) <= 76
+                if white and x < right - 2:
+                    if start is None:
+                        start = x
+                elif start is not None:
+                    if 1 <= x - start <= diameter:
+                        bright.update((i, y) for i in range(start, x))
+                    start = None
+        candidates = []
+        while bright:
+            blob = [bright.pop()]
+            for x, y in blob:
+                for point in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                    if point in bright:
+                        bright.remove(point)
+                        blob.append(point)
+            if len(blob) < 5:
+                continue
+            xs, ys = zip(*blob)
+            w, h = max(xs) - min(xs) + 1, max(ys) - min(ys) + 1
+            if not (3 <= w <= diameter and 3 <= h <= diameter and 0.6 <= w / float(h) <= 1.65):
+                continue
+            candidates.append(((min(xs) + max(xs)) / (2.0 * width),
+                               (min(ys) + max(ys)) / (2.0 * height)))
+        if len(candidates) == 1:
+            return candidates[0]
+        if candidates and previous is not None:
+            ranked = sorted((abs(point[0] - previous[0]) + abs(point[1] - previous[1]), point) for point in candidates)
+            if ranked[0][0] <= 0.18 and ranked[1][0] - ranked[0][0] > 0.025:
+                return ranked[0][1]
+        return None
+
+    def _keyquest_paddle_target(ball, previous, bounds, side):
+        left, top, right, bottom = bounds
+        target_x = left if side == "left" else right
+        y = ball[1]
+        if previous is not None:
+            dx = ball[0] - previous[0]
+            if abs(dx) >= 0.004 and (target_x - ball[0]) * dx > 0:
+                y += (ball[1] - previous[1]) * min(9, (target_x - ball[0]) / dx)
+                height = bottom - top
+                reflected = (y - top) % (height * 2)
+                y = top + min(reflected, height * 2 - reflected)
+        return (target_x + (0.02 if side == "left" else -0.02), min(bottom - 0.025, max(top + 0.025, y)))
+
+    def _keyquest_arcade_tick(state, now):
+        if not _keyquest_game_has_focus():
+            state.ball = None
+            state.timing_armed = False
+            return
+        size = (640, 360) if state.job == "timing" else (480, 270)
+        frame = renpy.display.scale.smoothscale(_keyquest_frame(), size)
+        board = _keyquest_board()
+        if state.job == "timing":
+            marker = _keyquest_timing_marker(frame, board)
+            if _keyquest_timing_step(state, marker):
+                _keyquest_puzzle_pointer((max(0.07, marker[0] - 0.06), (board[1] + board[3]) / 2.0), click=True)
+                _keyquest_trace("timing_tap")
+                state.next_tap = now + 0.08
+        else:
+            previous = state.ball if now - state.ball_at < 0.28 else None
+            ball = _keyquest_paddle_ball(frame, board, previous)
+            if ball is not None:
+                _keyquest_puzzle_pointer(_keyquest_paddle_target(ball, previous, board, state.paddle_side))
+                if previous is None:
+                    _keyquest_trace("paddle_ball_found")
+                state.ball, state.ball_at = ball, now
+
 
     def _keyquest_tile_neighbors(index, side=3):
         return tuple(other for other in (index - side, index + side, index - 1, index + 1)
@@ -850,7 +998,9 @@ init python:
         if now < state.next_tap:
             return
         try:
-            if job == "watch":
+            if job in ("paddle", "timing"):
+                _keyquest_arcade_tick(state, now)
+            elif job == "watch":
                 if state.color_event == "ready":
                     message = ("%d flashes recorded. Check the sequence, then press Play." % len(state.sequence)
                                if state.sequence else "No flashes captured. Start recording before the next pattern.")
@@ -944,13 +1094,15 @@ screen _keyquest_minigames():
             spacing 6
             textbutton "Color memory" style "keyquest_deck_key" selected (helper.mode == "colors") action Function(_keyquest_minigame_mode, "colors")
             textbutton "Picture tiles" style "keyquest_deck_key" selected (helper.mode == "tiles") action Function(_keyquest_minigame_mode, "tiles")
-            textbutton "Back to OCR" style "keyquest_deck_key" action [Hide("_keyquest_minigames"), Show("_keyquest_smart_input")]
+            textbutton "Paddle" style "keyquest_deck_key" selected (helper.mode == "paddle") action Function(_keyquest_minigame_mode, "paddle")
+            textbutton "Timing" style "keyquest_deck_key" selected (helper.mode == "timing") action Function(_keyquest_minigame_mode, "timing")
+            textbutton "OCR" style "keyquest_deck_key" action [Hide("_keyquest_minigames"), Show("_keyquest_smart_input")]
         if helper.mode == "tiles":
             hbox:
                 spacing 6
                 for side in (3, 4):
                     textbutton ("%d × %d" % (side, side)) style "keyquest_deck_key" selected (helper.tile_side == side) action Function(_keyquest_set_tile_size, side)
-        textbutton ("Adjust board" if board else "Set board corners") style "keyquest_deck_key" action Function(_keyquest_board_setup)
+        textbutton ("Mark timing line" if helper.mode == "timing" else ("Adjust board" if board else "Set board corners")) style "keyquest_deck_key" action Function(_keyquest_board_setup)
         if helper.mode == "colors":
             text "Start recording while all four colors are idle. When the game asks you to repeat, finish recording and play the sequence." color "#b9d3e8" size 19 xmaximum 618
             text (" · ".join(_keyquest_color_names[i] for i in helper.sequence) or "No colors recorded") substitute False color "#eff8ff" size 20 xmaximum 618
@@ -964,7 +1116,7 @@ screen _keyquest_minigames():
                 spacing 6
                 textbutton "Record flashes" style "keyquest_deck_accent" sensitive bool(board) action Function(_keyquest_begin_minigame, "watch")
                 textbutton "Play sequence" style "keyquest_deck_key" sensitive bool(board and helper.sequence) action Function(_keyquest_begin_minigame, "color-play")
-        else:
+        elif helper.mode == "tiles":
             text "Choose the grid size and set the corners around the entire grid, including the empty slot. Scan to match picture edges and plan legal slides." color "#b9d3e8" size 19 xmaximum 618
             hbox:
                 spacing 6
@@ -973,6 +1125,16 @@ screen _keyquest_minigames():
                 textbutton "Play all moves" style "keyquest_deck_key" sensitive bool(board and helper.moves) action Function(_keyquest_begin_minigame, "tile-play")
             if helper.tile_goal:
                 textbutton "Review layout" style "keyquest_deck_key" action Function(_keyquest_open_review)
+        elif helper.mode == "paddle":
+            text "Choose your side. Start the helper, then click the game to begin the rally." color "#b9d3e8" size 20 xmaximum 618
+            hbox:
+                spacing 6
+                for side in ("left", "right"):
+                    textbutton side.title() style "keyquest_deck_key" selected (helper.paddle_side == side) action SetField(helper, "paddle_side", side)
+                textbutton "Track ball" style "keyquest_deck_accent" action Function(_keyquest_begin_minigame, "paddle")
+        else:
+            text "Tap only while the blue marker is inside the red zone. Mark the timing line if the default position misses it." color "#b9d3e8" size 20 xmaximum 618
+            textbutton "Start timing" style "keyquest_deck_accent" action Function(_keyquest_begin_minigame, "timing")
         if helper.message:
             text helper.message substitute False color "#d5f6e7" size 19 xmaximum 618
 
@@ -1011,7 +1173,8 @@ screen _keyquest_minigame_picker():
     use _keyquest_floating("minigame-picker", "Mark board corners", 535, 135, (0.5, 0.04)):
         hbox:
             spacing 8
-            text ("Tap the bottom-right corner." if first else "Tap the top-left corner.") color "#eff8ff" size 20 yalign 0.5
+            $ timing = _keyquest_minigame.mode == "timing"
+            text (("Tap the bottom of the line." if first else "Tap the top of the line.") if timing else ("Tap the bottom-right corner." if first else "Tap the top-left corner.")) color "#eff8ff" size 20 yalign 0.5
             textbutton "Cancel" style "keyquest_deck_key" action Function(_keyquest_show_minigame)
 
 screen _keyquest_minigame_delay():
@@ -1020,7 +1183,7 @@ screen _keyquest_minigame_delay():
 screen _keyquest_minigame_run():
     zorder 997
     $ helper = _keyquest_minigame
-    timer (0.05 if helper.job == "watch" else 0.14) repeat True action Function(_keyquest_minigame_tick, _update_screens=False)
+    timer (0.035 if helper.job == "timing" else (0.06 if helper.job == "paddle" else (0.05 if helper.job == "watch" else 0.14))) repeat True action Function(_keyquest_minigame_tick, _update_screens=False)
     if helper.job != "watch":
         $ size = (112, 48)
         $ position = _keyquest_tile_stop_position((helper.tile_bounds if helper.job.startswith("tile-") else None) or _keyquest_board(), config.screen_width, config.screen_height, *size)

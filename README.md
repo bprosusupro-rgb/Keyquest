@@ -52,6 +52,9 @@ Open **Keyboard → OCR → Minigame helpers**. Each helper remembers its own bo
 - **Color memory** supports the red, blue, green and yellow grid. Select **Record flashes** before the first flash, while all four pads are idle. When the game asks for the sequence, select **Finish recording**. Check or edit the sequence, then select **Play sequence**.
 - **Picture tiles** supports 3 × 3 and 4 × 4 sliding pictures with one dark empty slot and a goal blank in the bottom-right. Select the grid size before setting the board corners. Each size saves its own calibration. Select **Scan tiles** to match picture edges. On a numbered board, Keyquest tries to read every label and checks that the order is reachable. On a 4 × 4 board, review the proposed picture before selecting **Plan moves**. Tap two tiles to swap them, or choose **Set number order** and tap the tiles labeled 1 through 15 in sequence. **Play one move** and **Play all moves** click the planned tiles and verify the board before advancing. During tile scanning and playback, Keyquest hides its launcher and parks a compact Stop button outside the board. If the board fills the screen, use the game-menu key to stop. If a tap is ignored, Keyquest retries once after confirming the board stayed still. It replans when it recognizes a different legal tile arrangement.
 
+- **Paddle** tracks the ball and moves the paddle with pointer events. Choose your side, select **Track ball**, then click the game to begin the rally. Use **Adjust board** to mark the court corners if needed.
+- **Timing** taps once when the blue marker passes through the red zone. Select **Start timing** during the challenge. Use **Mark timing line** to select the top and bottom of the track if needed.
+
 I used the Quest screenshots to check color positions and picture reconstruction. A timed color round and game input on the headset still need verification.
 
 ### Optional value editor
