@@ -56,7 +56,7 @@ I used the Quest screenshots to check color positions and picture reconstruction
 
 ### Optional value editor
 
-Before building, tick **Include local value editor**. In the patched game, tap the corner logo and choose **Values**. Select a suggested value such as `money` or enter the exact variable name. Tap **Edit new value**, enter a number, then tap **Apply value**. Use **Keys** if you need the on-screen keyboard.
+Before building, tick **Include local value editor**. In the patched game, tap the corner logo and choose **Values**. Browse or search game values, including nested fields such as `player.coins` and named stores such as `store.economy.balance`. Use **ABC** to search with the Quest controller, or enter an exact path with **Edit search**. Select a value, enter the replacement on the number pad, then tap **Apply value**. Use **Refresh list** if the game creates new variables after you open the panel.
 
 The add-on edits existing integer and decimal values in the main Ren’Py store while a local game is running. Variables kept inside objects, dictionaries, another store, or a server are outside its scope. Games can overwrite a value through their own rules. Save in-game if you want the change included in a save and keep a separate backup.
 
