@@ -5,6 +5,8 @@ default _test_hit_count = 0
 default _test_dim_blank = False
 default _test_tiles = (1, 2, 3, 4, 5, 6, 7, 0, 8)
 default _test_timing_y = 0.5
+default _test_zone_top = 0.22
+default _test_zone_height = 0.2
 default _test_timing_clicks = 0
 default _test_paddle_motions = []
 
@@ -274,6 +276,27 @@ label start:
     $ print("Keyquest minigame detection and verified clicks passed.")
     hide screen _keyquest_minigames
     hide screen _kq_test_tiles
+    python:
+        import pygame
+        timing_frame = pygame.Surface((480, 540))
+        timing_frame.fill((110, 114, 119))
+        pygame.draw.rect(timing_frame, (235, 231, 213), (252, 44, 3, 250))
+        pygame.draw.rect(timing_frame, (241, 29, 24), (252, 94, 3, 4))
+        pygame.draw.rect(timing_frame, (20, 62, 220), (249, 220, 9, 4))
+        marked_zone = (0.308, 0.225, 0.360, 0.429)
+        marker = _keyquest_timing_marker(timing_frame, marked_zone, search=True)
+        assert marker and marker[2] == 94 and 3 <= marker[3] - marker[2] <= 4, marker
+        rail = marker[0]
+        assert 0.52 < rail < 0.54, rail
+        pygame.draw.rect(timing_frame, (235, 231, 213), (249, 220, 9, 4))
+        pygame.draw.rect(timing_frame, (20, 62, 220), (249, 94, 9, 4))
+        assert _keyquest_timing_marker(timing_frame, marked_zone, rail) is None
+        covered = _keyquest_timing_marker(timing_frame, marked_zone, rail, previous_zone=marker[2:4])
+        assert covered and not covered[4], covered
+        _keyquest_minigame.timing_armed = True
+        assert not _keyquest_timing_step(_keyquest_minigame, marker)
+        assert _keyquest_timing_step(_keyquest_minigame, covered)
+        assert not _keyquest_timing_step(_keyquest_minigame, covered)
     $ _keyquest_minigame.mode = "timing"
     show screen _kq_test_timing_track
     $ renpy.pause(0.2, hard=True)
@@ -283,9 +306,11 @@ label start:
     $ _test_timing_y = 0.32
     $ renpy.pause(0.6, hard=True)
     $ assert _test_timing_clicks == 1, _test_timing_clicks
+    $ _test_zone_top = 0.30
+    $ _test_zone_height = 0.025
     $ _test_timing_y = 0.46
     $ renpy.pause(0.35, hard=True)
-    $ _test_timing_y = 0.33
+    $ _test_timing_y = 0.306
     $ renpy.pause(0.45, hard=True)
     $ assert _test_timing_clicks == 2, _test_timing_clicks
     $ _keyquest_stop_minigame()
@@ -302,7 +327,8 @@ label start:
 
 screen _kq_test_timing_track():
     add Solid("#bba579")
-    add Solid("#d81914") xpos 0.35 ypos 0.22 xysize (6, int(config.screen_height * 0.2))
+    add Solid("#e6e2d5") xpos 0.35 ypos 0.10 xysize (6, int(config.screen_height * 0.5))
+    add Solid("#d81914") xpos 0.35 ypos _test_zone_top xysize (6, int(config.screen_height * _test_zone_height))
     add Solid("#163fc8") xpos 0.349 ypos _test_timing_y xysize (15, 7)
     key "mouseup_1" action Function(_test_timing_press, _update_screens=False)
 

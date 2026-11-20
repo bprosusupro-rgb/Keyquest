@@ -37,6 +37,11 @@ init python:
         tile_wait_until = 0.0
         next_tap = 0.0
         timing_armed = True
+        timing_rail = None
+        timing_zone = None
+        timing_zone_at = 0.0
+        arcade_search_at = 0.0
+        paddle_pointer = None
         paddle_side = "left"
         ball = None
         ball_at = 0.0
@@ -277,6 +282,10 @@ init python:
         if job in ("paddle", "timing"):
             state.ball = None
             state.timing_armed = True
+            state.timing_rail = None
+            state.timing_zone = None
+            state.arcade_search_at = 0.0
+            state.paddle_pointer = None
         state.next_tap = 0.0
         state.color_event = None
         state.tile_seen = None
@@ -328,52 +337,78 @@ init python:
         left, top, right, bottom = bounds
         return (int(left * width), int(top * height), int(right * width), int(bottom * height))
 
-    def _keyquest_timing_marker(frame, bounds):
-        left, top, right, bottom = _keyquest_arcade_rect(frame, bounds)
-        best = ()
-        rail = None
-        for x in range(left, right):
-            red = []
+    def _keyquest_timing_marker(frame, bounds, rail_hint=None, search=False, previous_zone=None):
+        width, height = frame.get_size()
+        # Calibration is an optional horizontal hint. The zone can move and shrink.
+        center = int(((bounds[0] + bounds[2]) / 2.0 if rail_hint is None else rail_hint) * width)
+        top, bottom = 0, int(height * 0.72)
+        pixel = frame.get_at
+        max_marker_height = max(3, int(height * 0.028))
+        if search:
+            columns = range(int(width * 0.15), int(width * 0.76))
+        else:
+            radius = max(4, int(width * (0.045 if rail_hint is None else 0.009)))
+            columns = range(max(1, center - radius), min(width - 1, center + radius + 1))
+        candidates = []
+        for x in columns:
+            red, white = [], 0
             for y in range(top, bottom):
-                r, g, b = tuple(frame.get_at((x, y)))[:3]
+                color = pixel((x, y))
+                r, g, b = color[0], color[1], color[2]
                 if r >= 145 and r - g >= 72 and r - b >= 60:
                     red.append(y)
-            if not red:
+                elif r >= 185 and g >= 165 and b >= 140 and r - b < 85:
+                    white += 1
+            if len(red) >= 2:
+                span = red[-1] - red[0] + 1
+                if span - len(red) <= max_marker_height + 2 and span <= bottom * 0.7 and (not search or white >= height * 0.16):
+                    candidates.append((len(red), -abs(x - center), x, red))
+        ranked = sorted(candidates, reverse=True)[:5]
+        if previous_zone is not None and rail_hint is not None:
+            ranked.append((0, 0, center, previous_zone))
+        for red_count, _, rail, red in ranked:
+            first, last = red[0], red[-1]
+            blue = []
+            for y in range(top, bottom):
+                for x in range(max(0, rail - 4), min(width, rail + 5)):
+                    color = pixel((x, y))
+                    r, g, b = color[0], color[1], color[2]
+                    if b >= 100 and b - r >= 45 and b - g >= 30:
+                        blue.append(y)
+                        break
+            if not blue or blue[-1] - blue[0] + 1 > max_marker_height:
                 continue
-            span = red[-1] - red[0] + 1
-            if len(red) >= (bottom - top) * 0.05 and span <= (bottom - top) * 0.7 and len(red) >= span * 0.76:
-                if len(red) > len(best):
-                    best, rail = red, x
-        if rail is None:
-            return None
-        blue = []
-        for y in range(top, bottom):
-            for x in range(max(left, rail - 4), min(right, rail + 5)):
-                r, g, b = tuple(frame.get_at((x, y)))[:3]
-                if b >= 100 and b - r >= 45 and b - g >= 30:
-                    blue.append(y)
-                    break
-        if not blue or blue[-1] - blue[0] + 1 > max(3, (bottom - top) * 0.07):
-            return None
-        return (rail / float(frame.get_width()), (blue[0] + blue[-1]) / 2.0, best[0], best[-1])
+            if red_count:
+                # A marker crossing the zone can split its red pixels in two.
+                if any(not (blue[0] - 1 <= a + 1 and b - 1 <= blue[-1] + 1)
+                       for a, b in zip(red, red[1:]) if b > a + 1):
+                    continue
+            elif not (blue[0] <= first + 1 and blue[-1] >= last - 1):
+                continue
+            return (rail / float(width), (blue[0] + blue[-1]) / 2.0, first, last, bool(red_count))
+        return None
 
     def _keyquest_timing_step(state, marker):
         if marker is None:
             return False
-        _, y, top, bottom = marker
+        _, y, top, bottom = marker[:4]
         if not top <= y <= bottom:
             state.timing_armed = True
             return False
-        margin = max(1, min(3, (bottom - top) * 0.15))
+        margin = min(3, (bottom - top) * 0.15)
         if state.timing_armed and top + margin <= y <= bottom - margin:
             state.timing_armed = False
             return True
         return False
 
-    def _keyquest_paddle_ball(frame, bounds, previous=None):
+    def _keyquest_paddle_ball(frame, bounds, previous=None, local=False):
         left, top, right, bottom = _keyquest_arcade_rect(frame, bounds)
         width, height = frame.get_size()
         diameter = max(4, int(width * 0.024))
+        if local and previous is not None:
+            x, y = previous
+            left, right = max(left, int((x - 0.11) * width)), min(right, int((x + 0.11) * width))
+            top, bottom = max(top, int((y - 0.13) * height)), min(bottom, int((y + 0.13) * height))
         pixel = frame.get_at
         bright = set()
         for y in range(top + 2, bottom - 2):
@@ -430,24 +465,43 @@ init python:
         if not _keyquest_game_has_focus():
             state.ball = None
             state.timing_armed = False
+            state.timing_zone = None
+            state.paddle_pointer = None
             return
-        size = (640, 360) if state.job == "timing" else (480, 270)
-        frame = renpy.display.scale.smoothscale(_keyquest_frame(), size)
+        timing = state.job == "timing"
+        started = _kq_puzzle_time.time()
+        frame = renpy.display.scale.smoothscale(_keyquest_frame(), (480, 540) if timing else (480, 270))
         board = _keyquest_board()
-        if state.job == "timing":
-            marker = _keyquest_timing_marker(frame, board)
+        if timing:
+            zone = state.timing_zone if now - state.timing_zone_at <= 0.18 else None
+            marker = _keyquest_timing_marker(frame, board, state.timing_rail, previous_zone=zone)
+            if marker is None and now >= state.arcade_search_at:
+                state.arcade_search_at = now + 0.45
+                marker = _keyquest_timing_marker(frame, board, search=True)
+            if marker is not None:
+                state.timing_rail = marker[0]
+                if marker[4]:
+                    state.timing_zone, state.timing_zone_at = marker[2:4], now
             if _keyquest_timing_step(state, marker):
-                _keyquest_puzzle_pointer((max(0.07, marker[0] - 0.06), (board[1] + board[3]) / 2.0), click=True)
-                _keyquest_trace("timing_tap")
-                state.next_tap = now + 0.08
+                _keyquest_puzzle_pointer((max(0.07, marker[0] - 0.06), 0.4), click=True)
+                state.timing_zone = None
+                _keyquest_trace("timing_tap", span=marker[3] - marker[2] + 1)
         else:
-            previous = state.ball if now - state.ball_at < 0.28 else None
-            ball = _keyquest_paddle_ball(frame, board, previous)
+            previous = state.ball if now - state.ball_at < 0.32 else None
+            ball = _keyquest_paddle_ball(frame, board, previous, local=True) if previous is not None else None
+            if ball is None and now >= state.arcade_search_at:
+                state.arcade_search_at = now + 0.24
+                ball = _keyquest_paddle_ball(frame, board, previous)
             if ball is not None:
-                _keyquest_puzzle_pointer(_keyquest_paddle_target(ball, previous, board, state.paddle_side))
+                target = _keyquest_paddle_target(ball, previous, board, state.paddle_side)
+                if state.paddle_pointer is None or abs(target[1] - state.paddle_pointer[1]) >= 0.004:
+                    _keyquest_puzzle_pointer(target)
+                    state.paddle_pointer = target
                 if previous is None:
                     _keyquest_trace("paddle_ball_found")
                 state.ball, state.ball_at = ball, now
+        work = _kq_puzzle_time.time() - started
+        state.next_tap = now + max(0.055 if timing else 0.085, min(0.28, work * 2.6))
 
 
     def _keyquest_tile_neighbors(index, side=3):
@@ -1133,7 +1187,7 @@ screen _keyquest_minigames():
                     textbutton side.title() style "keyquest_deck_key" selected (helper.paddle_side == side) action SetField(helper, "paddle_side", side)
                 textbutton "Track ball" style "keyquest_deck_accent" action Function(_keyquest_begin_minigame, "paddle")
         else:
-            text "Tap only while the blue marker is inside the red zone. Mark the timing line if the default position misses it." color "#b9d3e8" size 20 xmaximum 618
+            text "Finds the timing rail and follows the red zone as it shrinks. Mark the line only if tracking misses it." color "#b9d3e8" size 20 xmaximum 618
             textbutton "Start timing" style "keyquest_deck_accent" action Function(_keyquest_begin_minigame, "timing")
         if helper.message:
             text helper.message substitute False color "#d5f6e7" size 19 xmaximum 618
@@ -1183,7 +1237,7 @@ screen _keyquest_minigame_delay():
 screen _keyquest_minigame_run():
     zorder 997
     $ helper = _keyquest_minigame
-    timer (0.035 if helper.job == "timing" else (0.06 if helper.job == "paddle" else (0.05 if helper.job == "watch" else 0.14))) repeat True action Function(_keyquest_minigame_tick, _update_screens=False)
+    timer (0.025 if helper.job == "timing" else (0.04 if helper.job == "paddle" else (0.05 if helper.job == "watch" else 0.14))) repeat True action Function(_keyquest_minigame_tick, _update_screens=False)
     if helper.job != "watch":
         $ size = (112, 48)
         $ position = _keyquest_tile_stop_position((helper.tile_bounds if helper.job.startswith("tile-") else None) or _keyquest_board(), config.screen_width, config.screen_height, *size)
